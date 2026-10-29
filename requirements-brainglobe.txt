@@ -1,0 +1,4 @@
+brainglobe-atlasapi
+pynrrd
+trimesh
+Pillow

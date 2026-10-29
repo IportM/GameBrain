@@ -1,0 +1,8 @@
+antspyx==0.6.3
+matplotlib
+nibabel
+numpy
+pynrrd
+scipy
+scikit-image
+trimesh
