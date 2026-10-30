@@ -51,7 +51,8 @@ export function ResponsiveCamera() {
   useEffect(() => {
     if (!(camera instanceof PerspectiveCamera)) return;
     const mobile = size.width < 640;
-    camera.position.set(...(mobile ? [23, 20, 25] as const : [15, 13, 16] as const));
+    const position: [number, number, number] = mobile ? [23, 20, 25] : [15, 13, 16];
+    camera.position.set(...position);
     camera.fov = mobile ? 45 : 38;
     camera.updateProjectionMatrix();
   }, [camera, size.width]);
