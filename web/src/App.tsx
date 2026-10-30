@@ -37,6 +37,20 @@ import {
 
 import InteractiveSlice, { type ConnectivityInspection } from "./InteractiveSlice";
 import {
+  INITIAL_ALLEN_REGISTRATION_STATE,
+  INITIAL_CONNECTIVITY_STATE,
+  INITIAL_REGISTRATION_STATE,
+  readAllenRegistrationResponse,
+  readConnectivityResponse,
+  readImportResponse,
+  type AllenRegistrationState,
+  type ConnectivitySearchResponse,
+  type ConnectivitySearchResult,
+  type ConnectivityState,
+  type ImportedManifest,
+  type RegistrationState,
+} from "./data";
+import {
   ATLAS_VOLUME_CENTER_MM,
   REGION_BY_ID,
   REGIONS,
@@ -53,258 +67,24 @@ import {
   type SlicePlane,
   type SliceResolution,
 } from "./atlas";
+import {
+  connectivityOverlayUrl,
+  connectivityVolumeUrl,
+  nativeConnectivityOverlayUrl,
+  nativeConnectivityVolumeUrl,
+  subjectAllenMaskUrl,
+  subjectAllenOutlineUrl,
+  subjectAllenRegionUrl,
+  subjectMaskOutlineUrl,
+  subjectSlice3DUrl,
+  subjectSliceUrl,
+} from "./viewerUrls";
 
 const RESTING_REGION_COLOR = "#858c88";
 const DIMMED_BRAIN_OPACITY = 0.07;
 const SELECTED_REGION_LAYER = 1;
 
-type RegistrationStatus = "idle" | "uploading" | "running" | "completed" | "failed";
-
-type AllenRegistrationState = {
-  status: "idle" | "running" | "completed" | "failed";
-  startedAt: string | null;
-  finishedAt: string | null;
-  message: string;
-  logTail: string[];
-  hasNativeAssets: boolean;
-};
-
-type ConnectivityManifest = {
-  experiment_id: number;
-  resolution_um: number;
-  shape: [number, number, number];
-  slice_counts: Record<SlicePlane, number>;
-  point_cloud_resolution_um?: number;
-  volume_resolution_um?: number;
-  volume_shape?: [number, number, number];
-  injection_marker?: {
-    center_mm: [number, number, number];
-    radius_mm: number;
-  };
-};
-
-type ConnectivityState = {
-  status: "idle" | "running" | "completed" | "failed";
-  startedAt: string | null;
-  finishedAt: string | null;
-  message: string;
-  logTail: string[];
-  experimentId: number | null;
-  hasViewerAssets: boolean;
-  viewerManifest: ConnectivityManifest | null;
-  metadata: ConnectivitySearchResult | null;
-  nativeStatus: "idle" | "running" | "completed" | "failed";
-  nativeMessage: string;
-  nativeLogTail: string[];
-  hasNativeViewerAssets: boolean;
-  nativeViewerManifest: {
-    experiment_id: number;
-    slice_counts: Record<SlicePlane, number>;
-    volume_shape?: [number, number, number];
-    volume_spacing_mm?: [number, number, number];
-    injection_marker?: { center_mm: [number, number, number]; radius_mm: number };
-  } | null;
-};
-
-type ConnectivitySearchResult = {
-  id: number;
-  specimenName: string;
-  primaryStructure: {
-    id: number | null;
-    acronym: string;
-    name: string;
-    color: string;
-  };
-  injectionStructures: Array<{
-    id: number;
-    acronym: string;
-    name: string;
-  }>;
-  injectionVolumeMm3: number | null;
-  injectionCoordinatesUm: [number, number, number] | null;
-  transgenicLine: string;
-  sex: string;
-  strain: string;
-};
-
-type ConnectivitySearchResponse = {
-  message: string;
-  results: ConnectivitySearchResult[];
-  total: number;
-};
-
-type RegistrationState = {
-  status: RegistrationStatus;
-  startedAt: string | null;
-  finishedAt: string | null;
-  message: string;
-  logTail: string[];
-  hasViewerAssets: boolean;
-  fileName: string | null;
-  viewerManifest: ImportedManifest | null;
-};
-
-type ImportedPlane = {
-  spacing_mm: number;
-  width_mm: number;
-  height_mm: number;
-};
-
-type ImportedManifest = {
-  shape: [number, number, number];
-  spacing_mm: [number, number, number];
-  size_mm: [number, number, number];
-  slice_counts: Record<SlicePlane, number>;
-  planes: Record<SlicePlane, ImportedPlane>;
-};
-
-const INITIAL_REGISTRATION_STATE: RegistrationState = {
-  status: "idle",
-  startedAt: null,
-  finishedAt: null,
-  message: "Sélectionnez une image NIfTI",
-  logTail: [],
-  hasViewerAssets: false,
-  fileName: null,
-  viewerManifest: null,
-};
-
-const INITIAL_ALLEN_REGISTRATION_STATE: AllenRegistrationState = {
-  status: "idle",
-  startedAt: null,
-  finishedAt: null,
-  message: "Le recalage Allen n'a pas encore été lancé",
-  logTail: [],
-  hasNativeAssets: false,
-};
-
-const INITIAL_CONNECTIVITY_STATE: ConnectivityState = {
-  status: "idle",
-  startedAt: null,
-  finishedAt: null,
-  message: "Saisissez un identifiant d'expérience Allen",
-  logTail: [],
-  experimentId: null,
-  hasViewerAssets: false,
-  viewerManifest: null,
-  metadata: null,
-  nativeStatus: "idle",
-  nativeMessage: "Projetez la carte dans l'image importée",
-  nativeLogTail: [],
-  hasNativeViewerAssets: false,
-  nativeViewerManifest: null,
-};
-
-async function readImportResponse(response: Response): Promise<RegistrationState> {
-  const body = await response.text();
-  if (!body) {
-    throw new Error("Le serveur local d'import ne répond pas. Rechargez la page puis réessayez.");
-  }
-  try {
-    return JSON.parse(body) as RegistrationState;
-  } catch {
-    throw new Error("La réponse du serveur d'import est invalide. Rechargez la page puis réessayez.");
-  }
-}
-
-async function readAllenRegistrationResponse(response: Response): Promise<AllenRegistrationState> {
-  const body = await response.text();
-  if (!body) {
-    throw new Error("Le serveur local de recalage ne répond pas");
-  }
-  try {
-    return JSON.parse(body) as AllenRegistrationState;
-  } catch {
-    throw new Error("La réponse du serveur de recalage est invalide");
-  }
-}
-
-async function readConnectivityResponse(response: Response): Promise<ConnectivityState> {
-  const body = await response.text();
-  if (!body) {
-    throw new Error("Le serveur de connectivité ne répond pas");
-  }
-  try {
-    const parsed = JSON.parse(body) as Partial<ConnectivityState>;
-    return {
-      ...INITIAL_CONNECTIVITY_STATE,
-      ...parsed,
-      nativeLogTail: parsed.nativeLogTail ?? [],
-    };
-  } catch {
-    throw new Error("La réponse du serveur de connectivité est invalide");
-  }
-}
-
 type ViewerSource = "allen" | "subject";
-
-function subjectSliceUrl(plane: SlicePlane, index: number, revision: string | null) {
-  const paddedIndex = index.toString().padStart(3, "0");
-  return `/api/import/viewer/slices/${plane}/${plane}-${paddedIndex}.webp?v=${encodeURIComponent(revision ?? "current")}`;
-}
-
-function subjectSlice3DUrl(plane: SlicePlane, index: number, revision: string | null) {
-  const paddedIndex = index.toString().padStart(3, "0");
-  return `/api/import/viewer/slices-3d/${plane}/${plane}-${paddedIndex}.webp?v=${encodeURIComponent(revision ?? "current")}`;
-}
-
-function subjectMaskOutlineUrl(plane: SlicePlane, index: number, revision: string | null) {
-  const paddedIndex = index.toString().padStart(3, "0");
-  return `/api/import/viewer/mask-outline/${plane}/${plane}-${paddedIndex}.webp?v=${encodeURIComponent(revision ?? "current")}`;
-}
-
-function subjectAllenMaskUrl(plane: SlicePlane, index: number, revision: string | null) {
-  const paddedIndex = index.toString().padStart(3, "0");
-  return `/api/allen-registration/viewer/masks/${plane}/${plane}-${paddedIndex}.png?v=${encodeURIComponent(revision ?? "current")}`;
-}
-
-function subjectAllenOutlineUrl(plane: SlicePlane, index: number, revision: string | null) {
-  const paddedIndex = index.toString().padStart(3, "0");
-  return `/api/allen-registration/viewer/outlines/${plane}/${plane}-${paddedIndex}.webp?v=${encodeURIComponent(revision ?? "current")}`;
-}
-
-function subjectAllenRegionUrl(regionId: number, revision: string | null) {
-  return `/api/allen-registration/viewer/regions/${regionId}.glb?v=${encodeURIComponent(revision ?? "current")}`;
-}
-
-function connectivityOverlayUrl(
-  layer: "projection" | "injection",
-  plane: SlicePlane,
-  atlasIndex: number,
-  atlasResolution: SliceResolution,
-  manifest: ConnectivityManifest,
-  revision: string | null,
-) {
-  const positionUm = atlasIndex * atlasResolution;
-  const count = manifest.slice_counts[plane];
-  const connectivityIndex = Math.min(
-    count - 1,
-    Math.max(0, Math.round(positionUm / manifest.resolution_um)),
-  );
-  const paddedIndex = connectivityIndex.toString().padStart(3, "0");
-  return `/api/connectivity/viewer/overlays/${layer}/${plane}/${plane}-${paddedIndex}.webp?v=${encodeURIComponent(revision ?? "current")}`;
-}
-
-function connectivityVolumeUrl(
-  layer: "projection" | "injection",
-  revision: string | null,
-) {
-  return `/api/connectivity/viewer/volumes/${layer}.bin?v=${encodeURIComponent(revision ?? "current")}`;
-}
-
-function nativeConnectivityOverlayUrl(
-  layer: "projection" | "injection",
-  plane: SlicePlane,
-  index: number,
-  revision: string | null,
-) {
-  const paddedIndex = index.toString().padStart(3, "0");
-  return `/api/connectivity/native-viewer/overlays/${layer}/${plane}/${plane}-${paddedIndex}.webp?v=${encodeURIComponent(revision ?? "current")}`;
-}
-
-function nativeConnectivityVolumeUrl(layer: "projection" | "injection", revision: string | null) {
-  return `/api/connectivity/native-viewer/volumes/${layer}.bin?v=${encodeURIComponent(revision ?? "current")}`;
-}
 
 function importedSlicePlaneTransform(
   plane: SlicePlane,
