@@ -1,22 +1,15 @@
 import {
   Suspense,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type WheelEvent,
 } from "react";
-import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
-import { Edges, Environment, OrbitControls, useGLTF, useTexture } from "@react-three/drei";
+import { Canvas, type ThreeEvent } from "@react-three/fiber";
+import { Environment, OrbitControls, useGLTF } from "@react-three/drei";
 import {
-  DoubleSide,
-  Light,
-  Matrix4,
-  Mesh,
   Plane,
-  PerspectiveCamera,
-  Quaternion,
   SRGBColorSpace,
   Vector3,
 } from "three";
@@ -30,6 +23,12 @@ import {
   SubjectRegion as SubjectRegionMesh,
   WholeBrain as WholeBrainMesh,
 } from "./BrainMeshes";
+import {
+  AtlasSlicePlane as AtlasSlicePlaneView,
+  AtlasSliceSection as AtlasSliceSectionView,
+  LayeredAtlasRenderer as LayeredAtlasRendererView,
+  ResponsiveCamera as ResponsiveCameraView,
+} from "./SceneSupport";
 import {
   INITIAL_ALLEN_REGISTRATION_STATE,
   INITIAL_CONNECTIVITY_STATE,
@@ -52,7 +51,6 @@ import {
   SLICE_PLANE_ORDER,
   resolutionMm,
   sliceCount,
-  slicePlaneTransform,
   sliceUrl,
   type ClipDirection,
   type Slice3DMode,
@@ -71,216 +69,7 @@ import {
   subjectSliceUrl,
 } from "./viewerUrls";
 
-const SELECTED_REGION_LAYER = 1;
-
 type ViewerSource = "allen" | "subject";
-
-function importedSlicePlaneTransform(
-  plane: SlicePlane,
-  index: number,
-  manifest: ImportedManifest,
-) {
-  const definition = manifest.planes[plane];
-  const count = manifest.slice_counts[plane];
-  const offset = (index - (count - 1) / 2) * definition.spacing_mm;
-  let position: [number, number, number];
-  let horizontal: Vector3;
-  let vertical: Vector3;
-  let normal: Vector3;
-  if (plane === "coronal") {
-    position = [offset, 0, 0];
-    horizontal = new Vector3(0, 0, 1);
-    vertical = new Vector3(0, -1, 0);
-    normal = new Vector3(1, 0, 0);
-  } else if (plane === "sagittal") {
-    position = [0, 0, offset];
-    horizontal = new Vector3(-1, 0, 0);
-    vertical = new Vector3(0, -1, 0);
-    normal = new Vector3(0, 0, 1);
-  } else {
-    position = [0, offset, 0];
-    horizontal = new Vector3(0, 0, 1);
-    vertical = new Vector3(-1, 0, 0);
-    normal = new Vector3(0, -1, 0);
-  }
-  return {
-    position,
-    quaternion: new Quaternion().setFromRotationMatrix(
-      new Matrix4().makeBasis(horizontal, vertical, normal),
-    ),
-    size: [definition.width_mm, definition.height_mm] as [number, number],
-  };
-}
-
-function ResponsiveCamera() {
-  const { camera, size } = useThree();
-
-  useEffect(() => {
-    if (!(camera instanceof PerspectiveCamera)) {
-      return;
-    }
-
-    const mobile = size.width < 640;
-    if (mobile) {
-      camera.position.set(23, 20, 25);
-    } else {
-      camera.position.set(15, 13, 16);
-    }
-    camera.fov = mobile ? 45 : 38;
-    camera.updateProjectionMatrix();
-  }, [camera, size.width]);
-
-  return null;
-}
-
-function LayeredAtlasRenderer({ overlayVisible }: { overlayVisible: boolean }) {
-  const { camera, gl, scene } = useThree();
-
-  useLayoutEffect(() => {
-    scene.traverse((object) => {
-      if (object instanceof Light) {
-        object.layers.enable(SELECTED_REGION_LAYER);
-      }
-    });
-  }, [scene]);
-
-  useFrame(() => {
-    camera.layers.set(0);
-    gl.autoClear = true;
-    gl.render(scene, camera);
-
-    if (overlayVisible) {
-      const background = scene.background;
-      gl.autoClear = false;
-      gl.clearDepth();
-      camera.layers.set(SELECTED_REGION_LAYER);
-      scene.background = null;
-      gl.render(scene, camera);
-      scene.background = background;
-    }
-
-    camera.layers.enableAll();
-    gl.autoClear = true;
-  }, 1);
-
-  return null;
-}
-
-function AtlasSlicePlane({
-  importedManifest,
-  index,
-  plane,
-  resolution,
-  visible,
-}: {
-  importedManifest: ImportedManifest | null;
-  index: number;
-  plane: SlicePlane;
-  resolution: SliceResolution;
-  visible: boolean;
-}) {
-  const transform = useMemo(
-    () => importedManifest
-      ? importedSlicePlaneTransform(plane, index, importedManifest)
-      : slicePlaneTransform(plane, index, resolution),
-    [importedManifest, index, plane, resolution],
-  );
-
-  return (
-    <mesh
-      position={transform.position}
-      quaternion={transform.quaternion}
-      visible={visible}
-      raycast={() => undefined}
-    >
-      <planeGeometry args={transform.size} />
-      <meshBasicMaterial
-        color="#74b8d1"
-        opacity={0.16}
-        transparent
-        depthWrite={false}
-        side={DoubleSide}
-      />
-      <Edges color="#b7dce8" />
-    </mesh>
-  );
-}
-
-function AtlasSliceSection({
-  imageUrl,
-  importedManifest,
-  index,
-  overlayLayer = true,
-  plane,
-  resolution,
-}: {
-  imageUrl?: string;
-  importedManifest: ImportedManifest | null;
-  index: number;
-  overlayLayer?: boolean;
-  plane: SlicePlane;
-  resolution: SliceResolution;
-}) {
-  const meshRef = useRef<Mesh>(null);
-  const texture = useTexture(imageUrl ?? sliceUrl(plane, index, resolution));
-  const transform = useMemo(
-    () => importedManifest
-      ? importedSlicePlaneTransform(plane, index, importedManifest)
-      : slicePlaneTransform(plane, index, resolution),
-    [importedManifest, index, plane, resolution],
-  );
-  const uniforms = useMemo(() => ({ sliceTexture: { value: texture } }), [texture]);
-
-  useEffect(() => {
-    texture.colorSpace = SRGBColorSpace;
-    texture.anisotropy = 4;
-    texture.needsUpdate = true;
-  }, [texture]);
-
-  useLayoutEffect(() => {
-    if (overlayLayer) {
-      meshRef.current?.layers.set(SELECTED_REGION_LAYER);
-    } else {
-      meshRef.current?.layers.set(0);
-    }
-  }, [overlayLayer]);
-
-  return (
-    <mesh
-      ref={meshRef}
-      position={transform.position}
-      quaternion={transform.quaternion}
-      raycast={() => undefined}
-      renderOrder={2}
-    >
-      <planeGeometry args={transform.size} />
-      <shaderMaterial
-        uniforms={uniforms}
-        side={DoubleSide}
-        vertexShader={`
-          varying vec2 vUv;
-
-          void main() {
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }
-        `}
-        fragmentShader={`
-          uniform sampler2D sliceTexture;
-          varying vec2 vUv;
-
-          void main() {
-            vec4 sliceColor = texture2D(sliceTexture, vUv);
-            if (sliceColor.a < 0.5) {
-              discard;
-            }
-            gl_FragColor = vec4(sliceColor.rgb, 1.0);
-          }
-        `}
-      />
-    </mesh>
-  );
-}
 
 function AtlasScene({
   activePlane,
@@ -410,8 +199,8 @@ function AtlasScene({
       shadows
     >
       <color attach="background" args={["#111513"]} />
-      <ResponsiveCamera />
-      <LayeredAtlasRenderer
+      <ResponsiveCameraView />
+      <LayeredAtlasRendererView
         overlayVisible={
           selectedRegionId !== null || slice3DMode === "clip"
         }
@@ -456,7 +245,7 @@ function AtlasScene({
               />
             </mesh>
           )}
-          <AtlasSlicePlane
+          <AtlasSlicePlaneView
             importedManifest={source === "subject" ? importedManifest : null}
             index={sliceIndex}
             plane={activePlane}
@@ -465,7 +254,7 @@ function AtlasScene({
           />
           <Suspense fallback={null}>
             {slice3DMode === "clip" && (
-              <AtlasSliceSection
+              <AtlasSliceSectionView
                 imageUrl={
                   source === "subject"
                     ? subjectSlice3DUrl(activePlane, sliceIndex, subjectRevision)
