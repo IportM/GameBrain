@@ -11,14 +11,9 @@ import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber"
 import { Edges, Environment, OrbitControls, useGLTF, useTexture } from "@react-three/drei";
 import {
   DoubleSide,
-  EqualDepth,
-  LessEqualDepth,
   Light,
   Matrix4,
   Mesh,
-  MeshBasicMaterial,
-  MeshStandardMaterial,
-  Object3D,
   Plane,
   PerspectiveCamera,
   Quaternion,
@@ -29,6 +24,12 @@ import {
 import InteractiveSlice, { type ConnectivityInspection } from "./InteractiveSlice";
 import { ConnectivityReadout, SliceToolbar } from "./SliceToolbar";
 import ConnectivityVolume from "./ConnectivityVolume";
+import {
+  AtlasRegion as AtlasRegionMesh,
+  SubjectBrain as SubjectBrainMesh,
+  SubjectRegion as SubjectRegionMesh,
+  WholeBrain as WholeBrainMesh,
+} from "./BrainMeshes";
 import {
   INITIAL_ALLEN_REGISTRATION_STATE,
   INITIAL_CONNECTIVITY_STATE,
@@ -54,7 +55,6 @@ import {
   slicePlaneTransform,
   sliceUrl,
   type ClipDirection,
-  type RegionDefinition,
   type Slice3DMode,
   type SlicePlane,
   type SliceResolution,
@@ -66,14 +66,11 @@ import {
   nativeConnectivityVolumeUrl,
   subjectAllenMaskUrl,
   subjectAllenOutlineUrl,
-  subjectAllenRegionUrl,
   subjectMaskOutlineUrl,
   subjectSlice3DUrl,
   subjectSliceUrl,
 } from "./viewerUrls";
 
-const RESTING_REGION_COLOR = "#858c88";
-const DIMMED_BRAIN_OPACITY = 0.07;
 const SELECTED_REGION_LAYER = 1;
 
 type ViewerSource = "allen" | "subject";
@@ -113,350 +110,6 @@ function importedSlicePlaneTransform(
     ),
     size: [definition.width_mm, definition.height_mm] as [number, number],
   };
-}
-
-function AtlasRegion({
-  baseOpacity,
-  clipEnabled,
-  clippingPlane,
-  depthContextEnabled,
-  dimmed,
-  highlighted,
-  isolated,
-  region,
-  visible,
-}: {
-  baseOpacity: number;
-  clipEnabled: boolean;
-  clippingPlane: Plane;
-  depthContextEnabled: boolean;
-  dimmed: boolean;
-  highlighted: boolean;
-  isolated: boolean;
-  region: RegionDefinition;
-  visible: boolean;
-}) {
-  const { scene } = useGLTF(`/atlas/regions/${region.id}.glb`);
-  const depthScene = useMemo(() => scene.clone(true), [scene]);
-
-  useLayoutEffect(() => {
-    scene.traverse((object: Object3D) => {
-      if (object instanceof Mesh) {
-        object.userData.regionId = region.id;
-        object.geometry.computeVertexNormals();
-        object.material = new MeshStandardMaterial({
-          color: RESTING_REGION_COLOR,
-          roughness: 0.66,
-          metalness: 0,
-          transparent: true,
-          opacity: 1,
-          depthWrite: false,
-        });
-        object.castShadow = true;
-        object.receiveShadow = true;
-      }
-    });
-  }, [region, scene]);
-
-  useLayoutEffect(() => {
-    depthScene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh)) {
-        return;
-      }
-
-      object.material = new MeshBasicMaterial({
-        colorWrite: false,
-        depthWrite: true,
-      });
-      object.raycast = () => undefined;
-      object.renderOrder = -100;
-    });
-
-    return () => {
-      depthScene.traverse((object: Object3D) => {
-        if (object instanceof Mesh && object.material instanceof MeshBasicMaterial) {
-          object.material.dispose();
-        }
-      });
-    };
-  }, [depthScene]);
-
-  useEffect(() => {
-    scene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh) || !(object.material instanceof MeshStandardMaterial)) {
-        return;
-      }
-
-      const material = object.material;
-      material.color.set(isolated ? RESTING_REGION_COLOR : highlighted ? region.color : RESTING_REGION_COLOR);
-      material.emissive.set(!isolated && highlighted ? region.color : "#000000");
-      material.emissiveIntensity = !isolated && highlighted ? 0.24 : 0;
-      material.opacity = isolated
-        ? 1
-        : highlighted
-        ? 1
-        : dimmed
-          ? Math.min(DIMMED_BRAIN_OPACITY, baseOpacity * 0.25)
-          : baseOpacity;
-      const materialIsOpaque = material.opacity >= 0.999;
-      const selectedOverlay = depthContextEnabled && highlighted;
-      material.transparent = !selectedOverlay && (depthContextEnabled || !materialIsOpaque);
-      material.depthWrite = selectedOverlay || (!depthContextEnabled && materialIsOpaque);
-      material.depthTest = true;
-      material.depthFunc = depthContextEnabled && !highlighted ? EqualDepth : LessEqualDepth;
-      object.layers.set(selectedOverlay ? SELECTED_REGION_LAYER : 0);
-      object.renderOrder = 0;
-      material.needsUpdate = true;
-    });
-  }, [baseOpacity, depthContextEnabled, dimmed, highlighted, isolated, region, scene]);
-
-  useEffect(() => {
-    scene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh) || !(object.material instanceof MeshStandardMaterial)) {
-        return;
-      }
-
-      const regionIsClipped = clipEnabled && !highlighted;
-      object.material.clippingPlanes = regionIsClipped ? [clippingPlane] : [];
-      object.material.clipShadows = regionIsClipped;
-      object.material.needsUpdate = true;
-    });
-  }, [clipEnabled, clippingPlane, highlighted, scene]);
-
-  useEffect(() => {
-    depthScene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh) || !(object.material instanceof MeshBasicMaterial)) {
-        return;
-      }
-
-      object.material.clippingPlanes = clipEnabled ? [clippingPlane] : [];
-      object.material.needsUpdate = true;
-    });
-  }, [clipEnabled, clippingPlane, depthScene]);
-
-  return (
-    <>
-      <primitive
-        object={depthScene}
-        visible={visible && depthContextEnabled && !highlighted}
-      />
-      <primitive object={scene} visible={visible} />
-    </>
-  );
-}
-
-function WholeBrain({
-  baseOpacity,
-  clipEnabled,
-  clippingPlane,
-  depthContextEnabled,
-  dimmed,
-  visible,
-}: {
-  baseOpacity: number;
-  clipEnabled: boolean;
-  clippingPlane: Plane;
-  depthContextEnabled: boolean;
-  dimmed: boolean;
-  visible: boolean;
-}) {
-  const { scene } = useGLTF("/atlas/regions/997.glb");
-  const depthScene = useMemo(() => scene.clone(true), [scene]);
-
-  useLayoutEffect(() => {
-    scene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh)) {
-        return;
-      }
-
-      object.geometry.computeVertexNormals();
-      object.material = new MeshStandardMaterial({
-        color: "#a2aaa5",
-        roughness: 0.72,
-        metalness: 0,
-        transparent: true,
-        opacity: 1,
-        depthWrite: false,
-      });
-      object.raycast = () => undefined;
-      object.receiveShadow = true;
-      object.renderOrder = 0;
-    });
-  }, [scene]);
-
-  useLayoutEffect(() => {
-    depthScene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh)) {
-        return;
-      }
-
-      object.material = new MeshBasicMaterial({
-        colorWrite: false,
-        depthWrite: true,
-      });
-      object.raycast = () => undefined;
-      object.renderOrder = -100;
-    });
-
-    return () => {
-      depthScene.traverse((object: Object3D) => {
-        if (object instanceof Mesh && object.material instanceof MeshBasicMaterial) {
-          object.material.dispose();
-        }
-      });
-    };
-  }, [depthScene]);
-
-  useEffect(() => {
-    scene.traverse((object: Object3D) => {
-      if (object instanceof Mesh && object.material instanceof MeshStandardMaterial) {
-        object.material.opacity = dimmed
-          ? Math.min(DIMMED_BRAIN_OPACITY, baseOpacity * 0.25)
-          : baseOpacity;
-        object.material.transparent = depthContextEnabled || object.material.opacity < 0.999;
-        object.material.depthWrite = !depthContextEnabled && object.material.opacity >= 0.999;
-        object.material.depthTest = true;
-        object.material.depthFunc = depthContextEnabled ? EqualDepth : LessEqualDepth;
-        object.material.needsUpdate = true;
-      }
-    });
-  }, [baseOpacity, depthContextEnabled, dimmed, scene]);
-
-  useEffect(() => {
-    scene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh) || !(object.material instanceof MeshStandardMaterial)) {
-        return;
-      }
-
-      object.material.clippingPlanes = clipEnabled ? [clippingPlane] : [];
-      object.material.clipShadows = clipEnabled;
-      object.material.needsUpdate = true;
-    });
-  }, [clipEnabled, clippingPlane, scene]);
-
-  useEffect(() => {
-    depthScene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh) || !(object.material instanceof MeshBasicMaterial)) {
-        return;
-      }
-
-      object.material.clippingPlanes = clipEnabled ? [clippingPlane] : [];
-      object.material.needsUpdate = true;
-    });
-  }, [clipEnabled, clippingPlane, depthScene]);
-
-  return (
-    <>
-      <primitive object={depthScene} visible={visible && depthContextEnabled} />
-      <primitive object={scene} visible={visible} />
-    </>
-  );
-}
-
-function SubjectBrain({
-  baseOpacity,
-  clipEnabled,
-  clippingPlane,
-  dimmed,
-  revision,
-  visible,
-}: {
-  baseOpacity: number;
-  clipEnabled: boolean;
-  clippingPlane: Plane;
-  dimmed: boolean;
-  revision: string | null;
-  visible: boolean;
-}) {
-  const { scene: sourceScene } = useGLTF(
-    `/api/import/viewer/subject.glb?v=${encodeURIComponent(revision ?? "current")}`,
-  );
-  const scene = useMemo(() => sourceScene.clone(true), [sourceScene]);
-
-  useLayoutEffect(() => {
-    scene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh)) {
-        return;
-      }
-      object.geometry.computeVertexNormals();
-      object.material = new MeshStandardMaterial({
-        color: "#cbd8d2",
-        roughness: 0.7,
-        metalness: 0,
-        side: DoubleSide,
-      });
-      object.raycast = () => undefined;
-      object.castShadow = true;
-      object.receiveShadow = true;
-    });
-  }, [scene]);
-
-  useEffect(() => {
-    scene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh) || !(object.material instanceof MeshStandardMaterial)) {
-        return;
-      }
-      object.material.opacity = dimmed
-        ? Math.min(DIMMED_BRAIN_OPACITY, baseOpacity * 0.25)
-        : baseOpacity;
-      object.material.transparent = object.material.opacity < 0.999;
-      object.material.depthWrite = object.material.opacity >= 0.999;
-      object.material.clippingPlanes = clipEnabled ? [clippingPlane] : [];
-      object.material.clipShadows = clipEnabled;
-      object.material.needsUpdate = true;
-    });
-  }, [baseOpacity, clipEnabled, clippingPlane, dimmed, scene]);
-
-  return <primitive object={scene} visible={visible} />;
-}
-
-function SubjectRegion({
-  overlay,
-  region,
-  revision,
-  visible,
-}: {
-  overlay: boolean;
-  region: RegionDefinition;
-  revision: string | null;
-  visible: boolean;
-}) {
-  const { scene: sourceScene } = useGLTF(subjectAllenRegionUrl(region.id, revision));
-  const scene = useMemo(() => sourceScene.clone(true), [sourceScene]);
-
-  useLayoutEffect(() => {
-    scene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh)) {
-        return;
-      }
-      object.userData.regionId = region.id;
-      object.geometry.computeVertexNormals();
-      object.material = new MeshStandardMaterial({
-        color: region.color,
-        emissive: region.color,
-        emissiveIntensity: 0.2,
-        roughness: 0.62,
-        metalness: 0,
-        side: DoubleSide,
-      });
-      object.castShadow = true;
-      object.receiveShadow = true;
-    });
-  }, [region, scene]);
-
-  useEffect(() => {
-    scene.traverse((object: Object3D) => {
-      if (!(object instanceof Mesh) || !(object.material instanceof MeshStandardMaterial)) {
-        return;
-      }
-      object.layers.set(overlay ? SELECTED_REGION_LAYER : 0);
-      // Comme dans l'atlas, une région sélectionnée reste entière en mode coupe.
-      object.material.clippingPlanes = [];
-      object.material.needsUpdate = true;
-    });
-  }, [overlay, scene]);
-
-  return <primitive object={scene} visible={visible} />;
 }
 
 function ResponsiveCamera() {
@@ -832,7 +485,7 @@ function AtlasScene({
             onPointerOut={() => onHoverRegion(null)}
           >
             {source === "subject" ? (
-              <SubjectBrain
+              <SubjectBrainMesh
                 baseOpacity={baseOpacity}
                 clipEnabled={slice3DMode === "clip"}
                 clippingPlane={clippingPlane}
@@ -841,7 +494,7 @@ function AtlasScene({
                 visible={wholeBrainVisible}
               />
             ) : (
-              <WholeBrain
+              <WholeBrainMesh
                 baseOpacity={baseOpacity}
                 clipEnabled={slice3DMode === "clip"}
                 clippingPlane={clippingPlane}
@@ -852,7 +505,7 @@ function AtlasScene({
             )}
             {source === "allen" && REGIONS.map((region) => (
               <Suspense fallback={null} key={region.id}>
-                <AtlasRegion
+                <AtlasRegionMesh
                   baseOpacity={baseOpacity}
                   clipEnabled={slice3DMode === "clip"}
                   clippingPlane={clippingPlane}
@@ -878,7 +531,7 @@ function AtlasScene({
               const highlighted = sceneRegionId === region.id;
               return highlighted && visibility[region.id] ? (
                 <Suspense fallback={null} key={region.id}>
-                  <SubjectRegion
+                  <SubjectRegionMesh
                     overlay={selectedRegionId === region.id}
                     region={region}
                     revision={annotationRevision}
