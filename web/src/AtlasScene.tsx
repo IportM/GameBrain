@@ -1,6 +1,6 @@
 import { Suspense, useMemo } from "react";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
-import { Environment, OrbitControls } from "@react-three/drei";
+import { Environment, OrbitControls, useGLTF } from "@react-three/drei";
 import { Plane, SRGBColorSpace, Vector3 } from "three";
 
 import ConnectivityVolume from "./ConnectivityVolume";
@@ -299,3 +299,5 @@ export default function AtlasScene({
     </Canvas>
   );
 }
+
+useGLTF.preload("/atlas/regions/997.glb");

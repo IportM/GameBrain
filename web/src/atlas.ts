@@ -1,6 +1,4 @@
-import { Matrix4, Quaternion, Vector3 } from "three";
-
-const ATLAS_SIZE_MM: [number, number, number] = [13.2, 8, 11.4];
+export const ATLAS_SIZE_MM: [number, number, number] = [13.2, 8, 11.4];
 const MESH_CENTER_MM: [number, number, number] = [7.50001, 3.394489, 5.687737];
 
 export const ATLAS_VOLUME_CENTER_MM: [number, number, number] = [
@@ -72,54 +70,6 @@ export function sliceMaskUrl(plane: SlicePlane, index: number, resolution: Slice
   const indexWidth = Math.max(3, String(sliceCount(plane, resolution) - 1).length);
   const paddedIndex = index.toString().padStart(indexWidth, "0");
   return `/atlas/slices/${resolution}/${plane}/masks/${plane}-${paddedIndex}.png`;
-}
-
-export type SlicePlaneTransform = {
-  position: [number, number, number];
-  quaternion: Quaternion;
-  size: [number, number];
-};
-
-export function slicePlaneTransform(
-  plane: SlicePlane,
-  index: number,
-  resolution: SliceResolution,
-): SlicePlaneTransform {
-  const center = ATLAS_VOLUME_CENTER_MM;
-  const offset = index * resolutionMm(resolution) - SLICE_PLANES[plane].meshCenterMm;
-
-  let position: [number, number, number];
-  let size: [number, number];
-  let horizontal: Vector3;
-  let vertical: Vector3;
-  let normal: Vector3;
-
-  if (plane === "coronal") {
-    position = [offset, center[1], center[2]];
-    size = [ATLAS_SIZE_MM[2], ATLAS_SIZE_MM[1]];
-    horizontal = new Vector3(0, 0, 1);
-    vertical = new Vector3(0, -1, 0);
-    normal = new Vector3(1, 0, 0);
-  } else if (plane === "sagittal") {
-    position = [center[0], center[1], offset];
-    size = [ATLAS_SIZE_MM[0], ATLAS_SIZE_MM[1]];
-    horizontal = new Vector3(1, 0, 0);
-    vertical = new Vector3(0, -1, 0);
-    normal = new Vector3(0, 0, -1);
-  } else {
-    position = [center[0], offset, center[2]];
-    size = [ATLAS_SIZE_MM[2], ATLAS_SIZE_MM[0]];
-    horizontal = new Vector3(0, 0, 1);
-    vertical = new Vector3(-1, 0, 0);
-    normal = new Vector3(0, -1, 0);
-  }
-
-  const basis = new Matrix4().makeBasis(horizontal, vertical, normal);
-  return {
-    position,
-    quaternion: new Quaternion().setFromRotationMatrix(basis),
-    size,
-  };
 }
 
 export type RegionDefinition = {

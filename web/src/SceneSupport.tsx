@@ -12,8 +12,9 @@ import {
   Vector3,
 } from "three";
 
-import { slicePlaneTransform, sliceUrl, type SlicePlane, type SliceResolution } from "./atlas";
+import { sliceUrl, type SlicePlane, type SliceResolution } from "./atlas";
 import type { ImportedManifest } from "./data";
+import { slicePlaneTransform } from "./sceneGeometry";
 
 const SELECTED_REGION_LAYER = 1;
 

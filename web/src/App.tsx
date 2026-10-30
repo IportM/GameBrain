@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
-import { useGLTF } from "@react-three/drei";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 
 import InteractiveSlice, { type ConnectivityInspection } from "./InteractiveSlice";
 import { ConnectivityReadout, SliceToolbar } from "./SliceToolbar";
-import AtlasScene, { type ViewerSource } from "./AtlasScene";
+import type { ViewerSource } from "./AtlasScene";
 import {
   INITIAL_ALLEN_REGISTRATION_STATE,
   INITIAL_CONNECTIVITY_STATE,
@@ -41,6 +40,8 @@ import {
   subjectMaskOutlineUrl,
   subjectSliceUrl,
 } from "./viewerUrls";
+
+const AtlasScene = lazy(() => import("./AtlasScene"));
 
 export default function App() {
   const [hoveredRegionId, setHoveredRegionId] = useState<number | null>(null);
@@ -1536,71 +1537,79 @@ export default function App() {
             )}
           </aside>
           <div className="viewer-stage">
-            <AtlasScene
-              key={sceneResetKey}
-              activePlane={activePlane}
-              annotationRevision={allenRegistrationState.finishedAt}
-              baseOpacity={
-                slice3DMode === "clip" ||
-                selectedRegionId !== null ||
-                connectivityVisible
-                  ? brainOpacity
-                  : 1
+            <Suspense
+              fallback={
+                <div className="scene-loading" role="status">
+                  Chargement de la vue 3D
+                </div>
               }
-              clipDirection={clipDirection}
-              connectivityInjectionCenter={
-                connectivityVisible && injectionVisible
-                  ? viewerSource === "allen" && connectivityState.hasViewerAssets
-                    ? connectivityState.viewerManifest?.injection_marker?.center_mm
-                    : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
-                      ? connectivityState.nativeViewerManifest?.injection_marker?.center_mm
-                      : undefined
-                  : undefined
-              }
-              connectivityInjectionRadius={
-                (viewerSource === "subject"
-                  ? connectivityState.nativeViewerManifest?.injection_marker?.radius_mm
-                  : connectivityState.viewerManifest?.injection_marker?.radius_mm) ?? 0.2
-              }
-              connectivityOpacity={connectivityOpacity}
-              connectivityProjectionUrl={
-                connectivityVisible && projectionVisible
-                  ? viewerSource === "allen" && connectivityState.hasViewerAssets
-                    ? connectivityVolumeUrl("projection", connectivityState.finishedAt)
-                    : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
-                      ? nativeConnectivityVolumeUrl("projection", connectivityState.finishedAt)
-                      : undefined
-                  : undefined
-              }
-              connectivityThreshold={connectivityThreshold}
-              connectivityVolumeCenter={
-                viewerSource === "subject" ? [0, 0, 0] : ATLAS_VOLUME_CENTER_MM
-              }
-              connectivityVolumeSpacingMm={
-                viewerSource === "subject"
-                  ? connectivityState.nativeViewerManifest?.volume_spacing_mm ?? [0.1, 0.1, 0.1]
-                  : (connectivityState.viewerManifest?.volume_resolution_um ?? 100) / 1000
-              }
-              connectivityVolumeShape={
-                viewerSource === "subject"
-                  ? connectivityState.nativeViewerManifest?.volume_shape
-                  : connectivityState.viewerManifest?.volume_shape
-              }
-              hoveredRegionId={sceneHoveredRegionId}
-              importedManifest={viewerSource === "subject" ? importedManifest : null}
-              isolatedRegionId={isolatedRegionId}
-              onHoverRegion={hoverRegionFromViewer}
-              onSelectRegion={selectRegion}
-              selectedRegionId={selectedRegionId}
-              source={viewerSource}
-              subjectRevision={registrationState.finishedAt}
-              subjectRegionsAvailable={subjectAnnotationsAvailable}
-              slice3DMode={slice3DMode}
-              sliceIndex={sliceIndex}
-              sliceResolution={sliceResolution}
-              visibility={visibility}
-              wholeBrainVisible={wholeBrainVisible}
-            />
+            >
+              <AtlasScene
+                key={sceneResetKey}
+                activePlane={activePlane}
+                annotationRevision={allenRegistrationState.finishedAt}
+                baseOpacity={
+                  slice3DMode === "clip" ||
+                  selectedRegionId !== null ||
+                  connectivityVisible
+                    ? brainOpacity
+                    : 1
+                }
+                clipDirection={clipDirection}
+                connectivityInjectionCenter={
+                  connectivityVisible && injectionVisible
+                    ? viewerSource === "allen" && connectivityState.hasViewerAssets
+                      ? connectivityState.viewerManifest?.injection_marker?.center_mm
+                      : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
+                        ? connectivityState.nativeViewerManifest?.injection_marker?.center_mm
+                        : undefined
+                    : undefined
+                }
+                connectivityInjectionRadius={
+                  (viewerSource === "subject"
+                    ? connectivityState.nativeViewerManifest?.injection_marker?.radius_mm
+                    : connectivityState.viewerManifest?.injection_marker?.radius_mm) ?? 0.2
+                }
+                connectivityOpacity={connectivityOpacity}
+                connectivityProjectionUrl={
+                  connectivityVisible && projectionVisible
+                    ? viewerSource === "allen" && connectivityState.hasViewerAssets
+                      ? connectivityVolumeUrl("projection", connectivityState.finishedAt)
+                      : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
+                        ? nativeConnectivityVolumeUrl("projection", connectivityState.finishedAt)
+                        : undefined
+                    : undefined
+                }
+                connectivityThreshold={connectivityThreshold}
+                connectivityVolumeCenter={
+                  viewerSource === "subject" ? [0, 0, 0] : ATLAS_VOLUME_CENTER_MM
+                }
+                connectivityVolumeSpacingMm={
+                  viewerSource === "subject"
+                    ? connectivityState.nativeViewerManifest?.volume_spacing_mm ?? [0.1, 0.1, 0.1]
+                    : (connectivityState.viewerManifest?.volume_resolution_um ?? 100) / 1000
+                }
+                connectivityVolumeShape={
+                  viewerSource === "subject"
+                    ? connectivityState.nativeViewerManifest?.volume_shape
+                    : connectivityState.viewerManifest?.volume_shape
+                }
+                hoveredRegionId={sceneHoveredRegionId}
+                importedManifest={viewerSource === "subject" ? importedManifest : null}
+                isolatedRegionId={isolatedRegionId}
+                onHoverRegion={hoverRegionFromViewer}
+                onSelectRegion={selectRegion}
+                selectedRegionId={selectedRegionId}
+                source={viewerSource}
+                subjectRevision={registrationState.finishedAt}
+                subjectRegionsAvailable={subjectAnnotationsAvailable}
+                slice3DMode={slice3DMode}
+                sliceIndex={sliceIndex}
+                sliceResolution={sliceResolution}
+                visibility={visibility}
+                wholeBrainVisible={wholeBrainVisible}
+              />
+            </Suspense>
           </div>
         </section>
         <section className="slice-view" aria-label={activeSlice.title}>
@@ -1766,6 +1775,3 @@ export default function App() {
     </main>
   );
 }
-
-useGLTF.preload("/atlas/regions/997.glb");
-
