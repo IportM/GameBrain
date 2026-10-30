@@ -32,6 +32,7 @@ type ConnectivityState = {
   message: string;
   logTail: string[];
   experimentId: number | null;
+  metadata: AllenConnectivityExperiment | null;
 };
 
 type NativeConnectivityState = {
@@ -208,6 +209,21 @@ function normalizeConnectivityExperiment(
   };
 }
 
+async function loadConnectivityExperiment(experimentId: number) {
+  const url = "https://api.brain-map.org/api/v2/data/ApiConnectivity/query.json"
+    + `?criteria=[id$eq${experimentId}]&num_rows=1`;
+  const response = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`Allen API: ${response.status}`);
+  const payload = await response.json() as { success?: boolean; msg?: unknown };
+  if (payload.success === false || !Array.isArray(payload.msg)) {
+    throw new Error("Métadonnées Allen indisponibles");
+  }
+  return normalizeConnectivityExperiment(payload.msg[0]) ?? null;
+}
+
 function importApi(): Plugin {
   const webRoot = dirname(fileURLToPath(import.meta.url));
   const projectRoot = resolve(webRoot, "..");
@@ -247,6 +263,7 @@ function importApi(): Plugin {
     message: "Saisissez un identifiant d'expérience Allen",
     logTail: [],
     experimentId: null,
+    metadata: null,
   };
   let nativeConnectivityState: NativeConnectivityState = {
     status: "idle",
@@ -312,7 +329,15 @@ function importApi(): Plugin {
       message: `Expérience Allen ${manifest.experiment_id} prête`,
       logTail: [],
       experimentId: Number(manifest.experiment_id),
+      metadata: null,
     };
+    void loadConnectivityExperiment(connectivityState.experimentId)
+      .then((metadata) => {
+        if (connectivityState.experimentId === Number(manifest.experiment_id)) {
+          connectivityState = { ...connectivityState, metadata };
+        }
+      })
+      .catch(() => undefined);
   };
   restoreLatestConnectivity();
 
@@ -524,6 +549,7 @@ function importApi(): Plugin {
             message: "Saisissez un identifiant d'expérience Allen",
             logTail: [],
             experimentId: null,
+            metadata: null,
           };
           nativeConnectivityState = {
             status: "idle",
@@ -623,6 +649,7 @@ function importApi(): Plugin {
               message: `Fichier manquant : ${missing}`,
               logTail: [],
               experimentId,
+              metadata: null,
             };
             response.statusCode = 500;
             response.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -636,7 +663,15 @@ function importApi(): Plugin {
             message: `Chargement de l'expérience Allen ${experimentId}`,
             logTail: ["Téléchargement des cartes de projection et d'injection"],
             experimentId,
+            metadata: null,
           };
+          void loadConnectivityExperiment(experimentId)
+            .then((metadata) => {
+              if (connectivityState.experimentId === experimentId) {
+                connectivityState = { ...connectivityState, metadata };
+              }
+            })
+            .catch(() => undefined);
           nativeConnectivityState = {
             status: "idle",
             message: "Projetez la carte dans l'image importée",

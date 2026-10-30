@@ -35,7 +35,7 @@ import {
   Vector4,
 } from "three";
 
-import InteractiveSlice from "./InteractiveSlice";
+import InteractiveSlice, { type ConnectivityInspection } from "./InteractiveSlice";
 import {
   ATLAS_VOLUME_CENTER_MM,
   REGION_BY_ID,
@@ -92,6 +92,7 @@ type ConnectivityState = {
   experimentId: number | null;
   hasViewerAssets: boolean;
   viewerManifest: ConnectivityManifest | null;
+  metadata: ConnectivitySearchResult | null;
   nativeStatus: "idle" | "running" | "completed" | "failed";
   nativeMessage: string;
   nativeLogTail: string[];
@@ -166,11 +167,6 @@ const INITIAL_REGISTRATION_STATE: RegistrationState = {
   hasViewerAssets: false,
   fileName: null,
   viewerManifest: null,
-  nativeStatus: "idle",
-  nativeMessage: "Projetez la carte dans l'image importée",
-  nativeLogTail: [],
-  hasNativeViewerAssets: false,
-  nativeViewerManifest: null,
 };
 
 const INITIAL_ALLEN_REGISTRATION_STATE: AllenRegistrationState = {
@@ -191,6 +187,12 @@ const INITIAL_CONNECTIVITY_STATE: ConnectivityState = {
   experimentId: null,
   hasViewerAssets: false,
   viewerManifest: null,
+  metadata: null,
+  nativeStatus: "idle",
+  nativeMessage: "Projetez la carte dans l'image importée",
+  nativeLogTail: [],
+  hasNativeViewerAssets: false,
+  nativeViewerManifest: null,
 };
 
 async function readImportResponse(response: Response): Promise<RegistrationState> {
@@ -1305,6 +1307,7 @@ function AtlasScene({
 export default function App() {
   const [hoveredRegionId, setHoveredRegionId] = useState<number | null>(null);
   const [menuHoveredRegionId, setMenuHoveredRegionId] = useState<number | null>(null);
+  const [lastInspectedRegionId, setLastInspectedRegionId] = useState<number | null>(null);
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(null);
   const [isolatedRegionId, setIsolatedRegionId] = useState<number | null>(null);
   const [activePlane, setActivePlane] = useState<SlicePlane>("coronal");
@@ -1346,6 +1349,10 @@ export default function App() {
   const [injectionVisible, setInjectionVisible] = useState(true);
   const [connectivityOpacity, setConnectivityOpacity] = useState(0.85);
   const [connectivityThreshold, setConnectivityThreshold] = useState(0.05);
+  const [connectivityHoverInspection, setConnectivityHoverInspection] =
+    useState<ConnectivityInspection | null>(null);
+  const [connectivityPinnedInspection, setConnectivityPinnedInspection] =
+    useState<ConnectivityInspection | null>(null);
   const [registrationPending, setRegistrationPending] = useState(false);
   const [registrationFile, setRegistrationFile] = useState<File | null>(null);
   const [registrationState, setRegistrationState] = useState<RegistrationState>(
@@ -1356,9 +1363,11 @@ export default function App() {
   const [connectivityState, setConnectivityState] =
     useState<ConnectivityState>(INITIAL_CONNECTIVITY_STATE);
   const [viewerSource, setViewerSource] = useState<ViewerSource>("allen");
+  const [showAllenRegionColors, setShowAllenRegionColors] = useState(true);
   const [showImportedMask, setShowImportedMask] = useState(true);
   const [showImportedAnnotations, setShowImportedAnnotations] = useState(true);
   const activatedSubjectRevision = useRef<string | null>(null);
+  const imageMenuRef = useRef<HTMLDetailsElement>(null);
   const sliceWheelDelta = useRef(0);
   const [visibility, setVisibility] = useState<Record<number, boolean>>(() =>
     Object.fromEntries(REGIONS.map((region) => [region.id, true])),
@@ -1381,6 +1390,9 @@ export default function App() {
       ? menuHoveredRegionId ?? hoveredRegionId
       : activeRegionId;
   const activeRegion = activeRegionId === null ? null : REGION_BY_ID.get(activeRegionId) ?? null;
+  const detailRegion = activeRegion ?? (
+    lastInspectedRegionId === null ? null : REGION_BY_ID.get(lastInspectedRegionId) ?? null
+  );
   const selectedRegion =
     selectedRegionId === null ? null : REGION_BY_ID.get(selectedRegionId) ?? null;
   const activeSlice = SLICE_PLANES[activePlane];
@@ -1408,6 +1420,14 @@ export default function App() {
   const activeSliceSpacingMm = viewerSource === "subject" && importedManifest
     ? importedManifest.planes[activePlane].spacing_mm
     : resolutionMm(sliceResolution);
+  const activeConnectivityInspection =
+    connectivityPinnedInspection ?? connectivityHoverInspection;
+  const connectivityAvailableForSource = viewerSource === "allen"
+    ? connectivityState.hasViewerAssets
+    : connectivityState.hasNativeViewerAssets;
+  const inspectedConnectivityRegion = activeConnectivityInspection?.regionId
+    ? REGION_BY_ID.get(activeConnectivityInspection.regionId) ?? null
+    : null;
   const visibleRegionCount = REGIONS.filter((region) => visibility[region.id]).length;
   const filteredRegions = useMemo(() => {
     const normalizedSearch = regionSearch.trim().toLocaleLowerCase("fr");
@@ -1421,9 +1441,30 @@ export default function App() {
     );
   }, [regionSearch]);
 
+  useEffect(() => {
+    const closeImageMenu = (event: PointerEvent) => {
+      const menu = imageMenuRef.current;
+      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) {
+        menu.removeAttribute("open");
+      }
+    };
+    const closeImageMenuWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        imageMenuRef.current?.removeAttribute("open");
+      }
+    };
+    document.addEventListener("pointerdown", closeImageMenu);
+    document.addEventListener("keydown", closeImageMenuWithKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", closeImageMenu);
+      document.removeEventListener("keydown", closeImageMenuWithKeyboard);
+    };
+  }, []);
+
   const selectRegion = (regionId: number | null) => {
     if (regionId !== null) {
       setVisibility((current) => ({ ...current, [regionId]: true }));
+      setLastInspectedRegionId(regionId);
     }
     setSelectedRegionId((current) => (current === regionId ? null : regionId));
   };
@@ -1433,6 +1474,7 @@ export default function App() {
     setHoveredRegionId(null);
     setMenuHoveredRegionId(null);
     setSelectedRegionId(regionId);
+    setLastInspectedRegionId(regionId);
     setIsolatedRegionId(null);
   };
 
@@ -1440,18 +1482,31 @@ export default function App() {
     if (connectivityVisible || selectedRegionId !== null) {
       return;
     }
+    setLastInspectedRegionId(regionId);
     setMenuHoveredRegionId(regionId);
   };
 
   const hoverRegionFromViewer = (regionId: number | null) => {
+    if (!connectivityVisible && regionId !== null) {
+      setLastInspectedRegionId(regionId);
+    }
     setHoveredRegionId(connectivityVisible ? null : regionId);
   };
 
   useEffect(() => {
-    if (!connectivityVisible) return;
+    if (!connectivityVisible) {
+      setConnectivityHoverInspection(null);
+      setConnectivityPinnedInspection(null);
+      return;
+    }
     setHoveredRegionId(null);
     setMenuHoveredRegionId(null);
   }, [connectivityVisible]);
+
+  useEffect(() => {
+    setConnectivityHoverInspection(null);
+    setConnectivityPinnedInspection(null);
+  }, [activePlane, sliceIndex, viewerSource]);
 
   const isolateSelectedRegion = () => {
     if (!selectedRegion) {
@@ -1480,6 +1535,7 @@ export default function App() {
     setVisibility(Object.fromEntries(REGIONS.map((region) => [region.id, true])));
     setHoveredRegionId(null);
     setMenuHoveredRegionId(null);
+    setLastInspectedRegionId(null);
     setSelectedRegionId(null);
     setIsolatedRegionId(null);
   };
@@ -1512,8 +1568,11 @@ export default function App() {
     setInjectionVisible(true);
     setConnectivityOpacity(0.85);
     setConnectivityThreshold(0.05);
+    setConnectivityHoverInspection(null);
+    setConnectivityPinnedInspection(null);
     setShowImportedMask(true);
     setShowImportedAnnotations(true);
+    setShowAllenRegionColors(true);
     setRegionSearch("");
     setSidebarCollapsed(false);
     setRegistrationOpen(false);
@@ -1836,7 +1895,10 @@ export default function App() {
     }
   };
 
-  const startConnectivity = async (requestedExperimentId?: number | string) => {
+  const startConnectivity = async (
+    requestedExperimentId?: number | string,
+    requestedMetadata?: ConnectivitySearchResult,
+  ) => {
     const rawExperimentId = requestedExperimentId ?? connectivityExperimentId;
     const experimentId = Number(
       typeof rawExperimentId === "string" ? rawExperimentId.trim() : rawExperimentId,
@@ -1856,6 +1918,7 @@ export default function App() {
       message: `Chargement de l'expérience Allen ${experimentId}`,
       logTail: [],
       experimentId,
+      metadata: requestedMetadata ?? null,
     }));
     try {
       const response = await fetch("/api/connectivity/start", {
@@ -1863,7 +1926,10 @@ export default function App() {
         headers: { "X-Experiment-Id": String(experimentId) },
       });
       const nextState = await readConnectivityResponse(response);
-      setConnectivityState(nextState);
+      setConnectivityState({
+        ...nextState,
+        metadata: nextState.metadata ?? requestedMetadata ?? null,
+      });
       if (!response.ok) {
         throw new Error(nextState.message);
       }
@@ -2030,7 +2096,7 @@ export default function App() {
               Importer une image
             </button>
           ) : (
-            <details className="image-menu">
+            <details className="image-menu" ref={imageMenuRef}>
               <summary>
                 <span>Image</span>
                 <span
@@ -2427,7 +2493,7 @@ export default function App() {
                           <button
                             type="button"
                             disabled={connectivityState.status === "running"}
-                            onClick={() => void startConnectivity(experiment.id)}
+                            onClick={() => void startConnectivity(experiment.id, experiment)}
                           >
                             Charger
                           </button>
@@ -2679,52 +2745,54 @@ export default function App() {
                     )}
                   </div>
                 </section>
-                {sliceAnnotationsEnabled && activeRegion && (
-                  <aside
-                    className={`region-info${viewerSource === "allen" && selectedRegionId === activeRegion.id ? " has-actions" : ""}`}
-                    aria-live="polite"
-                  >
+                {sliceAnnotationsEnabled && detailRegion && (
+                  <div className="region-info-slot">
+                    <aside
+                      className={`region-info${viewerSource === "allen" && selectedRegionId === detailRegion.id ? " has-actions" : ""}`}
+                      aria-live="polite"
+                    >
               <div className="region-info-heading">
                 <span
                   className="region-info-swatch"
-                  style={{ backgroundColor: activeRegion.color }}
+                  style={{ backgroundColor: detailRegion.color }}
                   aria-hidden="true"
                 />
                 <div>
                   <p className="region-info-label">
-                    {selectedRegionId === activeRegion.id ? "Région sélectionnée" : "Région Allen"}
+                    {selectedRegionId === detailRegion.id ? "Région sélectionnée" : "Région Allen"}
                   </p>
-                  <h2>{activeRegion.name}</h2>
+                  <h2>{detailRegion.name}</h2>
                 </div>
               </div>
               <dl>
                 <div>
                   <dt>Acronyme</dt>
-                  <dd>{activeRegion.acronym}</dd>
+                  <dd>{detailRegion.acronym}</dd>
                 </div>
                 <div>
                   <dt>Identifiant</dt>
-                  <dd>{activeRegion.id}</dd>
+                  <dd>{detailRegion.id}</dd>
                 </div>
                 <div>
                   <dt>Couleur</dt>
-                  <dd>{activeRegion.color.toUpperCase()}</dd>
+                  <dd>{detailRegion.color.toUpperCase()}</dd>
                 </div>
                 <div>
                   <dt>Parent</dt>
                   <dd>
-                    {activeRegion.parentName} ({activeRegion.parentId})
+                    {detailRegion.parentName} ({detailRegion.parentId})
                   </dd>
                 </div>
               </dl>
-              {viewerSource === "allen" && selectedRegionId === activeRegion.id && (
+              {viewerSource === "allen" && selectedRegionId === detailRegion.id && (
                 <div className="region-actions">
                   <button type="button" onClick={isolateSelectedRegion}>Afficher uniquement</button>
                   <button type="button" onClick={hideSelectedRegion}>Masquer</button>
                   <button type="button" onClick={() => selectRegion(null)}>Effacer</button>
                 </div>
               )}
-                  </aside>
+                    </aside>
+                  </div>
                 )}
               </div>
             )}
@@ -2808,9 +2876,18 @@ export default function App() {
               </p>
               <h2>{activeSlice.title}</h2>
             </div>
-            <div className="slice-header-tools">
-              {((viewerSource === "allen" && connectivityState.hasViewerAssets) ||
-                (viewerSource === "subject" && connectivityState.hasNativeViewerAssets)) && (
+            <div className="slice-position">
+              <span className="slice-index">
+                Index {sliceIndex} / {activeSliceCount - 1}
+              </span>
+              <span className="slice-coordinate">
+                {(sliceIndex * activeSliceSpacingMm).toFixed(2)} mm
+              </span>
+            </div>
+          </header>
+          <div className="slice-toolbar-stack">
+            <div className="slice-command-bar" aria-label="Outils de la coupe">
+              {connectivityAvailableForSource && (
                 <div className="connectivity-settings">
                   <button
                     type="button"
@@ -2821,81 +2898,35 @@ export default function App() {
                     <span aria-hidden="true" />
                     Connectivité {connectivityState.experimentId}
                   </button>
-                  {connectivitySettingsOpen && (
-                    <div className="connectivity-popover">
-                      <div className="connectivity-popover-header">
-                        <strong>Carte de connectivité</strong>
-                        <label className="connectivity-master-toggle">
-                          <input
-                            type="checkbox"
-                            checked={connectivityVisible}
-                            onChange={(event) => setConnectivityVisible(event.currentTarget.checked)}
-                          />
-                          <span>Afficher</span>
-                        </label>
-                      </div>
-                      <div className="connectivity-layers" aria-label="Calques de connectivité">
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={projectionVisible}
-                            onChange={(event) => setProjectionVisible(event.currentTarget.checked)}
-                          />
-                          <span className="connectivity-swatch is-projection" aria-hidden="true" />
-                          Projections
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={injectionVisible}
-                            onChange={(event) => setInjectionVisible(event.currentTarget.checked)}
-                          />
-                          <span className="connectivity-swatch is-injection" aria-hidden="true" />
-                          Injection
-                        </label>
-                      </div>
-                      <label className="connectivity-range">
-                        <span>Opacité <output>{Math.round(connectivityOpacity * 100)}%</output></span>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={Math.round(connectivityOpacity * 100)}
-                          onChange={(event) => setConnectivityOpacity(Number(event.currentTarget.value) / 100)}
-                        />
-                      </label>
-                      <label className="connectivity-range">
-                        <span>Signal minimal <output>{Math.round(connectivityThreshold * 100)}%</output></span>
-                        <input
-                          type="range"
-                          min="0"
-                          max="80"
-                          value={Math.round(connectivityThreshold * 100)}
-                          onChange={(event) => setConnectivityThreshold(Number(event.currentTarget.value) / 100)}
-                        />
-                      </label>
-                    </div>
-                  )}
                 </div>
               )}
               {viewerSource === "allen" ? (
-                <div
-                  className="resolution-selector"
-                  role="group"
-                  aria-label="Résolution des coupes"
-                >
-                  {SLICE_RESOLUTIONS.map((resolution) => (
-                    <button
-                      type="button"
-                      aria-pressed={sliceResolution === resolution}
-                      className={sliceResolution === resolution ? "is-active" : undefined}
-                      key={resolution}
-                      onClick={() => changeSliceResolution(resolution)}
-                    >
-                      {resolution} µm
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div className="slice-layer-controls" aria-label="Affichage des annotations Allen">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={showAllenRegionColors}
+                        onChange={(event) => setShowAllenRegionColors(event.currentTarget.checked)}
+                      />
+                      <span className="layer-color is-allen" aria-hidden="true" />
+                      <span>Régions</span>
+                    </label>
+                  </div>
+                  <div className="resolution-selector" role="group" aria-label="Résolution des coupes">
+                    {SLICE_RESOLUTIONS.map((resolution) => (
+                      <button
+                        type="button"
+                        aria-pressed={sliceResolution === resolution}
+                        className={sliceResolution === resolution ? "is-active" : undefined}
+                        key={resolution}
+                        onClick={() => changeSliceResolution(resolution)}
+                      >
+                        {resolution} µm
+                      </button>
+                    ))}
+                  </div>
+                </>
               ) : (
                 <div className="slice-layer-controls" aria-label="Superpositions de la coupe">
                   {subjectAnnotationsAvailable && (
@@ -2920,33 +2951,102 @@ export default function App() {
                   </label>
                 </div>
               )}
-              <div className="slice-position">
-                <span className="slice-index">
-                  Index {sliceIndex} / {activeSliceCount - 1}
-                </span>
-                <span className="slice-coordinate">
-                  {(sliceIndex * activeSliceSpacingMm).toFixed(2)} mm
-                </span>
-              </div>
             </div>
-          </header>
-          <div className="slice-tabs" role="tablist" aria-label="Orientation de coupe">
-            {SLICE_PLANE_ORDER.map((plane) => (
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activePlane === plane}
-                className={activePlane === plane ? "is-active" : undefined}
-                key={plane}
-                onClick={() => {
-                  sliceWheelDelta.current = 0;
-                  setHoveredRegionId(null);
-                  setActivePlane(plane);
-                }}
-              >
-                {SLICE_PLANES[plane].label}
-              </button>
-            ))}
+            {connectivitySettingsOpen && connectivityAvailableForSource && (
+              <div className="connectivity-control-strip">
+              <div className="connectivity-control-summary">
+                <div className="connectivity-control-heading">
+                  <strong>
+                    {connectivityState.metadata?.primaryStructure.acronym ||
+                      `Exp. ${connectivityState.experimentId}`}
+                  </strong>
+                  <label className="connectivity-master-toggle">
+                    <input
+                      type="checkbox"
+                      checked={connectivityVisible}
+                      onChange={(event) => setConnectivityVisible(event.currentTarget.checked)}
+                    />
+                    <span>Afficher</span>
+                  </label>
+                </div>
+                <span>
+                  {connectivityState.metadata?.primaryStructure.name ||
+                    "Métadonnées anatomiques en cours de récupération"}
+                </span>
+                {connectivityState.metadata && (
+                  <small>
+                    {connectivityState.metadata.transgenicLine ||
+                      connectivityState.metadata.strain ||
+                      "Lignée non renseignée"}
+                    {connectivityState.metadata.sex ? ` · ${connectivityState.metadata.sex}` : ""}
+                    {connectivityState.metadata.injectionVolumeMm3 !== null
+                      ? ` · injection ${connectivityState.metadata.injectionVolumeMm3.toFixed(3)} mm³`
+                      : ""}
+                  </small>
+                )}
+              </div>
+              <div className="connectivity-layers" aria-label="Calques de connectivité">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={projectionVisible}
+                    onChange={(event) => setProjectionVisible(event.currentTarget.checked)}
+                  />
+                  <span className="connectivity-swatch is-projection" aria-hidden="true" />
+                  Projections
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={injectionVisible}
+                    onChange={(event) => setInjectionVisible(event.currentTarget.checked)}
+                  />
+                  <span className="connectivity-swatch is-injection" aria-hidden="true" />
+                  Injection
+                </label>
+              </div>
+              <div className="connectivity-control-ranges">
+                <label className="connectivity-range">
+                  <span>Opacité <output>{Math.round(connectivityOpacity * 100)}%</output></span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={Math.round(connectivityOpacity * 100)}
+                    onChange={(event) => setConnectivityOpacity(Number(event.currentTarget.value) / 100)}
+                  />
+                </label>
+                <label className="connectivity-range">
+                  <span>Signal minimal <output>{Math.round(connectivityThreshold * 100)}%</output></span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="80"
+                    value={Math.round(connectivityThreshold * 100)}
+                    onChange={(event) => setConnectivityThreshold(Number(event.currentTarget.value) / 100)}
+                  />
+                </label>
+              </div>
+              </div>
+            )}
+            <div className="slice-tabs" role="tablist" aria-label="Orientation de coupe">
+              {SLICE_PLANE_ORDER.map((plane) => (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activePlane === plane}
+                  className={activePlane === plane ? "is-active" : undefined}
+                  key={plane}
+                  onClick={() => {
+                    sliceWheelDelta.current = 0;
+                    setHoveredRegionId(null);
+                    setActivePlane(plane);
+                  }}
+                >
+                  {SLICE_PLANES[plane].label}
+                </button>
+              ))}
+            </div>
           </div>
           <div
             className={`slice-image-wrap${activeRegion ? " is-hovering" : ""}`}
@@ -2959,6 +3059,7 @@ export default function App() {
                   : undefined
               }
               annotationsEnabled={sliceAnnotationsEnabled}
+              connectivityInspectionEnabled={viewerSource === "allen" && connectivityVisible}
               connectivityProjectionSrc={
                 connectivityVisible && projectionVisible
                   ? viewerSource === "allen" && connectivityState.viewerManifest
@@ -2993,7 +3094,9 @@ export default function App() {
               }
               connectivityOpacity={connectivityOpacity}
               connectivityThreshold={connectivityThreshold}
-              hoveredRegionId={activeRegionId}
+              hoveredRegionId={
+                viewerSource === "allen" && !showAllenRegionColors ? null : activeRegionId
+              }
               imageSrc={
                 viewerSource === "subject"
                   ? subjectSliceUrl(activePlane, sliceIndex, registrationState.finishedAt)
@@ -3011,12 +3114,53 @@ export default function App() {
                   : undefined
               }
               onHoverRegion={hoverRegionFromViewer}
+              onConnectivityInspect={setConnectivityHoverInspection}
+              onConnectivityPin={(inspection) => {
+                setConnectivityPinnedInspection(inspection);
+                setConnectivityHoverInspection(null);
+              }}
               onSelectRegion={selectRegion}
               plane={activePlane}
+              regionColorsVisible={viewerSource !== "allen" || showAllenRegionColors}
               resolution={sliceResolution}
             />
           </div>
           <div className="slice-controls">
+            {viewerSource === "allen" && connectivityVisible && connectivityState.hasViewerAssets && (
+              <div className="connectivity-readout" aria-live="polite">
+                <div className="connectivity-readout-heading">
+                  <strong>
+                    {connectivityPinnedInspection ? "Point sélectionné" : "Lecture de la coupe"}
+                  </strong>
+                  {connectivityPinnedInspection && (
+                    <button type="button" onClick={() => setConnectivityPinnedInspection(null)}>
+                      Effacer
+                    </button>
+                  )}
+                </div>
+                {activeConnectivityInspection ? (
+                  <>
+                    <span className="connectivity-readout-region">
+                      {inspectedConnectivityRegion
+                        ? `${inspectedConnectivityRegion.acronym} · ${inspectedConnectivityRegion.name}`
+                        : "Région principale non identifiée"}
+                    </span>
+                    <dl>
+                      <div>
+                        <dt>Projection</dt>
+                        <dd>{Math.round(activeConnectivityInspection.projection * 100)}%</dd>
+                      </div>
+                      <div>
+                        <dt>Injection</dt>
+                        <dd>{Math.round(activeConnectivityInspection.injection * 100)}%</dd>
+                      </div>
+                    </dl>
+                  </>
+                ) : (
+                  <p>Survolez une zone colorée, puis cliquez pour conserver la lecture.</p>
+                )}
+              </div>
+            )}
             <div className="slice-control-heading">
               <label htmlFor="slice-position">Position {activeSlice.label.toLowerCase()}</label>
               <output htmlFor="slice-position">{sliceIndex}</output>
