@@ -36,6 +36,7 @@ import {
 } from "three";
 
 import InteractiveSlice, { type ConnectivityInspection } from "./InteractiveSlice";
+import { ConnectivityReadout, SliceToolbar } from "./SliceToolbar";
 import {
   INITIAL_ALLEN_REGISTRATION_STATE,
   INITIAL_CONNECTIVITY_STATE,
@@ -56,7 +57,6 @@ import {
   REGIONS,
   SLICE_PLANES,
   SLICE_PLANE_ORDER,
-  SLICE_RESOLUTIONS,
   resolutionMm,
   sliceCount,
   slicePlaneTransform,
@@ -2665,169 +2665,38 @@ export default function App() {
               </span>
             </div>
           </header>
-          <div className="slice-toolbar-stack">
-            <div className="slice-command-bar" aria-label="Outils de la coupe">
-              {connectivityAvailableForSource && (
-                <div className="connectivity-settings">
-                  <button
-                    type="button"
-                    className={`connectivity-toggle${connectivityVisible ? " is-active" : ""}`}
-                    aria-expanded={connectivitySettingsOpen}
-                    onClick={() => setConnectivitySettingsOpen((current) => !current)}
-                  >
-                    <span aria-hidden="true" />
-                    Connectivité {connectivityState.experimentId}
-                  </button>
-                </div>
-              )}
-              {viewerSource === "allen" ? (
-                <>
-                  <div className="slice-layer-controls" aria-label="Affichage des annotations Allen">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={showAllenRegionColors}
-                        onChange={(event) => setShowAllenRegionColors(event.currentTarget.checked)}
-                      />
-                      <span className="layer-color is-allen" aria-hidden="true" />
-                      <span>Régions</span>
-                    </label>
-                  </div>
-                  <div className="resolution-selector" role="group" aria-label="Résolution des coupes">
-                    {SLICE_RESOLUTIONS.map((resolution) => (
-                      <button
-                        type="button"
-                        aria-pressed={sliceResolution === resolution}
-                        className={sliceResolution === resolution ? "is-active" : undefined}
-                        key={resolution}
-                        onClick={() => changeSliceResolution(resolution)}
-                      >
-                        {resolution} µm
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <div className="slice-layer-controls" aria-label="Superpositions de la coupe">
-                  {subjectAnnotationsAvailable && (
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={showImportedAnnotations}
-                        onChange={() => setShowImportedAnnotations((current) => !current)}
-                      />
-                      <span className="layer-color is-allen" aria-hidden="true" />
-                      <span>Régions</span>
-                    </label>
-                  )}
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={showImportedMask}
-                      onChange={() => setShowImportedMask((current) => !current)}
-                    />
-                    <span className="layer-color is-mask" aria-hidden="true" />
-                    <span>Masque</span>
-                  </label>
-                </div>
-              )}
-            </div>
-            {connectivitySettingsOpen && connectivityAvailableForSource && (
-              <div className="connectivity-control-strip">
-              <div className="connectivity-control-summary">
-                <div className="connectivity-control-heading">
-                  <strong>
-                    {connectivityState.metadata?.primaryStructure.acronym ||
-                      `Exp. ${connectivityState.experimentId}`}
-                  </strong>
-                  <label className="connectivity-master-toggle">
-                    <input
-                      type="checkbox"
-                      checked={connectivityVisible}
-                      onChange={(event) => setConnectivityVisible(event.currentTarget.checked)}
-                    />
-                    <span>Afficher</span>
-                  </label>
-                </div>
-                <span>
-                  {connectivityState.metadata?.primaryStructure.name ||
-                    "Métadonnées anatomiques en cours de récupération"}
-                </span>
-                {connectivityState.metadata && (
-                  <small>
-                    {connectivityState.metadata.transgenicLine ||
-                      connectivityState.metadata.strain ||
-                      "Lignée non renseignée"}
-                    {connectivityState.metadata.sex ? ` · ${connectivityState.metadata.sex}` : ""}
-                    {connectivityState.metadata.injectionVolumeMm3 !== null
-                      ? ` · injection ${connectivityState.metadata.injectionVolumeMm3.toFixed(3)} mm³`
-                      : ""}
-                  </small>
-                )}
-              </div>
-              <div className="connectivity-layers" aria-label="Calques de connectivité">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={projectionVisible}
-                    onChange={(event) => setProjectionVisible(event.currentTarget.checked)}
-                  />
-                  <span className="connectivity-swatch is-projection" aria-hidden="true" />
-                  Projections
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={injectionVisible}
-                    onChange={(event) => setInjectionVisible(event.currentTarget.checked)}
-                  />
-                  <span className="connectivity-swatch is-injection" aria-hidden="true" />
-                  Injection
-                </label>
-              </div>
-              <div className="connectivity-control-ranges">
-                <label className="connectivity-range">
-                  <span>Opacité <output>{Math.round(connectivityOpacity * 100)}%</output></span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={Math.round(connectivityOpacity * 100)}
-                    onChange={(event) => setConnectivityOpacity(Number(event.currentTarget.value) / 100)}
-                  />
-                </label>
-                <label className="connectivity-range">
-                  <span>Signal minimal <output>{Math.round(connectivityThreshold * 100)}%</output></span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="80"
-                    value={Math.round(connectivityThreshold * 100)}
-                    onChange={(event) => setConnectivityThreshold(Number(event.currentTarget.value) / 100)}
-                  />
-                </label>
-              </div>
-              </div>
-            )}
-            <div className="slice-tabs" role="tablist" aria-label="Orientation de coupe">
-              {SLICE_PLANE_ORDER.map((plane) => (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activePlane === plane}
-                  className={activePlane === plane ? "is-active" : undefined}
-                  key={plane}
-                  onClick={() => {
-                    sliceWheelDelta.current = 0;
-                    setHoveredRegionId(null);
-                    setActivePlane(plane);
-                  }}
-                >
-                  {SLICE_PLANES[plane].label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <SliceToolbar
+            activePlane={activePlane}
+            connectivityAvailable={connectivityAvailableForSource}
+            connectivityOpacity={connectivityOpacity}
+            connectivitySettingsOpen={connectivitySettingsOpen}
+            connectivityState={connectivityState}
+            connectivityThreshold={connectivityThreshold}
+            connectivityVisible={connectivityVisible}
+            injectionVisible={injectionVisible}
+            projectionVisible={projectionVisible}
+            showAllenRegionColors={showAllenRegionColors}
+            showImportedAnnotations={showImportedAnnotations}
+            showImportedMask={showImportedMask}
+            sliceResolution={sliceResolution}
+            subjectAnnotationsAvailable={subjectAnnotationsAvailable}
+            viewerSource={viewerSource}
+            onConnectivityOpacityChange={setConnectivityOpacity}
+            onConnectivitySettingsToggle={() => setConnectivitySettingsOpen((current) => !current)}
+            onConnectivityThresholdChange={setConnectivityThreshold}
+            onConnectivityVisibleChange={setConnectivityVisible}
+            onInjectionVisibleChange={setInjectionVisible}
+            onPlaneChange={(plane) => {
+              sliceWheelDelta.current = 0;
+              setHoveredRegionId(null);
+              setActivePlane(plane);
+            }}
+            onProjectionVisibleChange={setProjectionVisible}
+            onResolutionChange={changeSliceResolution}
+            onShowAllenRegionColorsChange={setShowAllenRegionColors}
+            onShowImportedAnnotationsChange={setShowImportedAnnotations}
+            onShowImportedMaskChange={setShowImportedMask}
+          />
           <div
             className={`slice-image-wrap${activeRegion ? " is-hovering" : ""}`}
             onWheel={handleSliceWheel}
@@ -2907,39 +2776,12 @@ export default function App() {
           </div>
           <div className="slice-controls">
             {viewerSource === "allen" && connectivityVisible && connectivityState.hasViewerAssets && (
-              <div className="connectivity-readout" aria-live="polite">
-                <div className="connectivity-readout-heading">
-                  <strong>
-                    {connectivityPinnedInspection ? "Point sélectionné" : "Lecture de la coupe"}
-                  </strong>
-                  {connectivityPinnedInspection && (
-                    <button type="button" onClick={() => setConnectivityPinnedInspection(null)}>
-                      Effacer
-                    </button>
-                  )}
-                </div>
-                {activeConnectivityInspection ? (
-                  <>
-                    <span className="connectivity-readout-region">
-                      {inspectedConnectivityRegion
-                        ? `${inspectedConnectivityRegion.acronym} · ${inspectedConnectivityRegion.name}`
-                        : "Région principale non identifiée"}
-                    </span>
-                    <dl>
-                      <div>
-                        <dt>Projection</dt>
-                        <dd>{Math.round(activeConnectivityInspection.projection * 100)}%</dd>
-                      </div>
-                      <div>
-                        <dt>Injection</dt>
-                        <dd>{Math.round(activeConnectivityInspection.injection * 100)}%</dd>
-                      </div>
-                    </dl>
-                  </>
-                ) : (
-                  <p>Survolez une zone colorée, puis cliquez pour conserver la lecture.</p>
-                )}
-              </div>
+              <ConnectivityReadout
+                inspection={activeConnectivityInspection}
+                pinned={connectivityPinnedInspection !== null}
+                region={inspectedConnectivityRegion}
+                onClear={() => setConnectivityPinnedInspection(null)}
+              />
             )}
             <div className="slice-control-heading">
               <label htmlFor="slice-position">Position {activeSlice.label.toLowerCase()}</label>
