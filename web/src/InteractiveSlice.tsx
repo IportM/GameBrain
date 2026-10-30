@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
   MASK_VALUE_BY_REGION_ID,
@@ -162,7 +162,7 @@ function ConnectivityOverlay({
   return <canvas ref={canvasRef} className="slice-connectivity-overlay" aria-hidden="true" />;
 }
 
-export default function InteractiveSlice({
+function InteractiveSlice({
   annotationOutlineSrc,
   annotationsEnabled = true,
   connectivityInjectionSrc,
@@ -426,3 +426,5 @@ export default function InteractiveSlice({
     </>
   );
 }
+
+export default memo(InteractiveSlice);

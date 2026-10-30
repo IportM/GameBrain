@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import type { ConnectivityInspection } from "./InteractiveSlice";
 import {
   SLICE_PLANES,
@@ -38,7 +40,7 @@ type SliceToolbarProps = {
   onShowImportedMaskChange: (visible: boolean) => void;
 };
 
-export function SliceToolbar({
+function SliceToolbarComponent({
   activePlane,
   connectivityAvailable,
   connectivityOpacity,
@@ -229,6 +231,8 @@ export function SliceToolbar({
   );
 }
 
+export const SliceToolbar = memo(SliceToolbarComponent);
+
 type ConnectivityReadoutProps = {
   inspection: ConnectivityInspection | null;
   pinned: boolean;
@@ -236,7 +240,7 @@ type ConnectivityReadoutProps = {
   onClear: () => void;
 };
 
-export function ConnectivityReadout({
+function ConnectivityReadoutComponent({
   inspection,
   pinned,
   region,
@@ -274,3 +278,5 @@ export function ConnectivityReadout({
     </div>
   );
 }
+
+export const ConnectivityReadout = memo(ConnectivityReadoutComponent);

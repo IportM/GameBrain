@@ -1,4 +1,4 @@
-import { Suspense, useMemo } from "react";
+import { memo, Suspense, useMemo } from "react";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { Environment, OrbitControls, useGLTF } from "@react-three/drei";
 import { Plane, SRGBColorSpace, Vector3 } from "three";
@@ -31,7 +31,7 @@ import { subjectSlice3DUrl } from "./viewerUrls";
 
 export type ViewerSource = "allen" | "subject";
 
-export default function AtlasScene({
+function AtlasScene({
   activePlane,
   annotationRevision,
   baseOpacity,
@@ -299,5 +299,7 @@ export default function AtlasScene({
     </Canvas>
   );
 }
+
+export default memo(AtlasScene);
 
 useGLTF.preload("/atlas/regions/997.glb");

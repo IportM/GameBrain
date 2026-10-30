@@ -1,4 +1,13 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type WheelEvent,
+} from "react";
 
 import InteractiveSlice, { type ConnectivityInspection } from "./InteractiveSlice";
 import { ConnectivityReadout, SliceToolbar } from "./SliceToolbar";
@@ -142,7 +151,7 @@ export default function App() {
   const sliceAnnotationsEnabled =
     viewerSource === "allen" || (viewerSource === "subject" && subjectAnnotationsAvailable);
   const sliceIndexes = sliceIndexesBySource[viewerSource];
-  const setSliceIndexes = (
+  const setSliceIndexes = useCallback((
     next:
       | Record<SlicePlane, number>
       | ((current: Record<SlicePlane, number>) => Record<SlicePlane, number>),
@@ -151,7 +160,7 @@ export default function App() {
       ...current,
       [viewerSource]: typeof next === "function" ? next(current[viewerSource]) : next,
     }));
-  };
+  }, [viewerSource]);
   const activeSliceCount = viewerSource === "subject" && importedManifest
     ? importedManifest.slice_counts[activePlane]
     : sliceCount(activePlane, sliceResolution);
@@ -200,13 +209,13 @@ export default function App() {
     };
   }, []);
 
-  const selectRegion = (regionId: number | null) => {
+  const selectRegion = useCallback((regionId: number | null) => {
     if (regionId !== null) {
       setVisibility((current) => ({ ...current, [regionId]: true }));
       setLastInspectedRegionId(regionId);
     }
     setSelectedRegionId((current) => (current === regionId ? null : regionId));
-  };
+  }, []);
 
   const selectRegionFromMenu = (regionId: number) => {
     setVisibility((current) => ({ ...current, [regionId]: true }));
@@ -225,12 +234,48 @@ export default function App() {
     setMenuHoveredRegionId(regionId);
   };
 
-  const hoverRegionFromViewer = (regionId: number | null) => {
+  const hoverRegionFromViewer = useCallback((regionId: number | null) => {
     if (!connectivityVisible && regionId !== null) {
       setLastInspectedRegionId(regionId);
     }
     setHoveredRegionId(connectivityVisible ? null : regionId);
-  };
+  }, [connectivityVisible]);
+
+  const inspectConnectivity = useCallback((inspection: ConnectivityInspection | null) => {
+    if (connectivityPinnedInspection !== null) {
+      return;
+    }
+    setConnectivityHoverInspection((current) => {
+      if (current === inspection) return current;
+      if (current === null || inspection === null) return inspection;
+      const unchanged =
+        current.plane === inspection.plane &&
+        current.index === inspection.index &&
+        current.regionId === inspection.regionId &&
+        Math.round(current.projection * 100) === Math.round(inspection.projection * 100) &&
+        Math.round(current.injection * 100) === Math.round(inspection.injection * 100);
+      return unchanged ? current : inspection;
+    });
+  }, [connectivityPinnedInspection]);
+
+  const pinConnectivityInspection = useCallback((inspection: ConnectivityInspection | null) => {
+    setConnectivityPinnedInspection(inspection);
+    setConnectivityHoverInspection(null);
+  }, []);
+
+  const clearConnectivityInspection = useCallback(() => {
+    setConnectivityPinnedInspection(null);
+  }, []);
+
+  const toggleConnectivitySettings = useCallback(() => {
+    setConnectivitySettingsOpen((current) => !current);
+  }, []);
+
+  const changeActivePlane = useCallback((plane: SlicePlane) => {
+    sliceWheelDelta.current = 0;
+    setHoveredRegionId(null);
+    setActivePlane(plane);
+  }, []);
 
   useEffect(() => {
     if (!connectivityVisible) {
@@ -322,7 +367,7 @@ export default function App() {
     setSceneResetKey((current) => current + 1);
   };
 
-  const changeSliceResolution = (nextResolution: SliceResolution) => {
+  const changeSliceResolution = useCallback((nextResolution: SliceResolution) => {
     if (viewerSource === "subject") {
       return;
     }
@@ -344,7 +389,7 @@ export default function App() {
       ) as Record<SlicePlane, number>,
     );
     setSliceResolution(nextResolution);
-  };
+  }, [setSliceIndexes, sliceResolution, viewerSource]);
 
   const handleSliceWheel = (event: WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -1648,15 +1693,11 @@ export default function App() {
             subjectAnnotationsAvailable={subjectAnnotationsAvailable}
             viewerSource={viewerSource}
             onConnectivityOpacityChange={setConnectivityOpacity}
-            onConnectivitySettingsToggle={() => setConnectivitySettingsOpen((current) => !current)}
+            onConnectivitySettingsToggle={toggleConnectivitySettings}
             onConnectivityThresholdChange={setConnectivityThreshold}
             onConnectivityVisibleChange={setConnectivityVisible}
             onInjectionVisibleChange={setInjectionVisible}
-            onPlaneChange={(plane) => {
-              sliceWheelDelta.current = 0;
-              setHoveredRegionId(null);
-              setActivePlane(plane);
-            }}
+            onPlaneChange={changeActivePlane}
             onProjectionVisibleChange={setProjectionVisible}
             onResolutionChange={changeSliceResolution}
             onShowAllenRegionColorsChange={setShowAllenRegionColors}
@@ -1729,11 +1770,8 @@ export default function App() {
                   : undefined
               }
               onHoverRegion={hoverRegionFromViewer}
-              onConnectivityInspect={setConnectivityHoverInspection}
-              onConnectivityPin={(inspection) => {
-                setConnectivityPinnedInspection(inspection);
-                setConnectivityHoverInspection(null);
-              }}
+              onConnectivityInspect={inspectConnectivity}
+              onConnectivityPin={pinConnectivityInspection}
               onSelectRegion={selectRegion}
               plane={activePlane}
               regionColorsVisible={viewerSource !== "allen" || showAllenRegionColors}
@@ -1746,7 +1784,7 @@ export default function App() {
                 inspection={activeConnectivityInspection}
                 pinned={connectivityPinnedInspection !== null}
                 region={inspectedConnectivityRegion}
-                onClear={() => setConnectivityPinnedInspection(null)}
+                onClear={clearConnectivityInspection}
               />
             )}
             <div className="slice-control-heading">
