@@ -33,6 +33,7 @@ import {
   SLICE_PLANE_ORDER,
   resolutionMm,
   sliceCount,
+  sliceMaskUrl,
   sliceUrl,
   type ClipDirection,
   type Slice3DMode,
@@ -47,8 +48,10 @@ import {
   subjectAllenMaskUrl,
   subjectAllenOutlineUrl,
   subjectMaskOutlineUrl,
+  subjectSlice3DUrl,
   subjectSliceUrl,
 } from "./viewerUrls";
+import { preloadImages } from "./imagePreload";
 
 const AtlasScene = lazy(() => import("./AtlasScene"));
 
@@ -117,6 +120,16 @@ export default function App() {
   const activatedSubjectRevision = useRef<string | null>(null);
   const imageMenuRef = useRef<HTMLDetailsElement>(null);
   const sliceWheelDelta = useRef(0);
+  const pendingWheelSteps = useRef(0);
+  const sliceWheelFrame = useRef<number | null>(null);
+  const pendingSliderIndex = useRef<number | null>(null);
+  const sliceSliderFrame = useRef<number | null>(null);
+  const previousSlicePosition = useRef<{
+    index: number;
+    plane: SlicePlane;
+    resolution: SliceResolution;
+    source: ViewerSource;
+  } | null>(null);
   const [visibility, setVisibility] = useState<Record<number, boolean>>(() =>
     Object.fromEntries(REGIONS.map((region) => [region.id, true])),
   );
@@ -272,7 +285,13 @@ export default function App() {
   }, []);
 
   const changeActivePlane = useCallback((plane: SlicePlane) => {
+    if (sliceWheelFrame.current !== null) cancelAnimationFrame(sliceWheelFrame.current);
+    if (sliceSliderFrame.current !== null) cancelAnimationFrame(sliceSliderFrame.current);
     sliceWheelDelta.current = 0;
+    pendingWheelSteps.current = 0;
+    pendingSliderIndex.current = null;
+    sliceWheelFrame.current = null;
+    sliceSliderFrame.current = null;
     setHoveredRegionId(null);
     setActivePlane(plane);
   }, []);
@@ -408,26 +427,151 @@ export default function App() {
       availableSteps > steps
         ? 0
         : sliceWheelDelta.current - direction * steps * threshold;
-    setSliceIndexes((current) => ({
-      ...current,
-      [activePlane]: Math.min(
-        activeSliceCount - 1,
-        Math.max(0, current[activePlane] + direction * steps),
-      ),
-    }));
+    pendingWheelSteps.current += direction * steps;
+    if (sliceWheelFrame.current === null) {
+      sliceWheelFrame.current = requestAnimationFrame(() => {
+        const offset = pendingWheelSteps.current;
+        pendingWheelSteps.current = 0;
+        sliceWheelFrame.current = null;
+        setSliceIndexes((current) => ({
+          ...current,
+          [activePlane]: Math.min(
+            activeSliceCount - 1,
+            Math.max(0, current[activePlane] + offset),
+          ),
+        }));
+      });
+    }
   };
 
-  useEffect(() => {
-    const adjacentIndexes = [sliceIndex - 1, sliceIndex + 1].filter(
-      (index) => index >= 0 && index < activeSliceCount,
-    );
-    adjacentIndexes.forEach((index) => {
-      const image = new Image();
-      image.src = viewerSource === "subject"
-        ? subjectSliceUrl(activePlane, index, registrationState.finishedAt)
-        : sliceUrl(activePlane, index, sliceResolution);
+  const scheduleSliderIndex = useCallback((nextIndex: number) => {
+    pendingSliderIndex.current = nextIndex;
+    if (sliceSliderFrame.current !== null) return;
+    sliceSliderFrame.current = requestAnimationFrame(() => {
+      const index = pendingSliderIndex.current;
+      pendingSliderIndex.current = null;
+      sliceSliderFrame.current = null;
+      if (index === null) return;
+      setHoveredRegionId(null);
+      setSliceIndexes((current) => ({ ...current, [activePlane]: index }));
     });
-  }, [activePlane, activeSliceCount, registrationState.finishedAt, sliceIndex, sliceResolution, viewerSource]);
+  }, [activePlane, setSliceIndexes]);
+
+  useEffect(() => () => {
+    if (sliceWheelFrame.current !== null) cancelAnimationFrame(sliceWheelFrame.current);
+    if (sliceSliderFrame.current !== null) cancelAnimationFrame(sliceSliderFrame.current);
+  }, []);
+
+  useEffect(() => {
+    const currentPosition = {
+      index: sliceIndex,
+      plane: activePlane,
+      resolution: sliceResolution,
+      source: viewerSource,
+    };
+    const previous = previousSlicePosition.current;
+    const sameStack =
+      previous?.plane === activePlane &&
+      previous.resolution === sliceResolution &&
+      previous.source === viewerSource;
+    const direction = sameStack ? Math.sign(sliceIndex - previous.index) : 0;
+    const offsets = direction === 0
+      ? [-2, -1, 1, 2]
+      : [direction, direction * 2, direction * 3, direction * 4, -direction];
+    const nearbyIndexes = offsets
+      .map((offset) => sliceIndex + offset)
+      .filter((index) => index >= 0 && index < activeSliceCount);
+    const assets: string[] = [];
+
+    for (const index of nearbyIndexes) {
+      if (viewerSource === "allen") {
+        assets.push(sliceUrl(activePlane, index, sliceResolution));
+        if (sliceAnnotationsEnabled) {
+          assets.push(sliceMaskUrl(activePlane, index, sliceResolution));
+        }
+        if (connectivityVisible && connectivityState.viewerManifest) {
+          if (projectionVisible) {
+            assets.push(connectivityOverlayUrl(
+              "projection",
+              activePlane,
+              index,
+              sliceResolution,
+              connectivityState.viewerManifest,
+              connectivityState.finishedAt,
+            ));
+          }
+          if (injectionVisible) {
+            assets.push(connectivityOverlayUrl(
+              "injection",
+              activePlane,
+              index,
+              sliceResolution,
+              connectivityState.viewerManifest,
+              connectivityState.finishedAt,
+            ));
+          }
+        }
+      } else {
+        assets.push(subjectSliceUrl(activePlane, index, registrationState.finishedAt));
+        if (slice3DMode === "clip") {
+          assets.push(subjectSlice3DUrl(activePlane, index, registrationState.finishedAt));
+        }
+        if (showImportedMask) {
+          assets.push(subjectMaskOutlineUrl(activePlane, index, registrationState.finishedAt));
+        }
+        if (subjectAnnotationsAvailable) {
+          assets.push(subjectAllenMaskUrl(activePlane, index, allenRegistrationState.finishedAt));
+          if (showImportedAnnotations) {
+            assets.push(subjectAllenOutlineUrl(
+              activePlane,
+              index,
+              allenRegistrationState.finishedAt,
+            ));
+          }
+        }
+        if (connectivityVisible && connectivityState.hasNativeViewerAssets) {
+          if (projectionVisible) {
+            assets.push(nativeConnectivityOverlayUrl(
+              "projection",
+              activePlane,
+              index,
+              connectivityState.finishedAt,
+            ));
+          }
+          if (injectionVisible) {
+            assets.push(nativeConnectivityOverlayUrl(
+              "injection",
+              activePlane,
+              index,
+              connectivityState.finishedAt,
+            ));
+          }
+        }
+      }
+    }
+
+    preloadImages(assets);
+    previousSlicePosition.current = currentPosition;
+  }, [
+    activePlane,
+    activeSliceCount,
+    allenRegistrationState.finishedAt,
+    connectivityState.finishedAt,
+    connectivityState.hasNativeViewerAssets,
+    connectivityState.viewerManifest,
+    connectivityVisible,
+    injectionVisible,
+    projectionVisible,
+    registrationState.finishedAt,
+    showImportedAnnotations,
+    showImportedMask,
+    slice3DMode,
+    sliceAnnotationsEnabled,
+    sliceIndex,
+    sliceResolution,
+    subjectAnnotationsAvailable,
+    viewerSource,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1800,11 +1944,7 @@ export default function App() {
               value={sliceIndex}
               onInput={(event) => {
                 const nextIndex = Number(event.currentTarget.value);
-                setHoveredRegionId(null);
-                setSliceIndexes((current) => ({
-                  ...current,
-                  [activePlane]: nextIndex,
-                }));
+                scheduleSliderIndex(nextIndex);
               }}
             />
           </div>

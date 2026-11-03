@@ -211,6 +211,7 @@ function InteractiveSlice({
 
   useEffect(() => {
     let cancelled = false;
+    let loadDelay: number | null = null;
     maskDataRef.current = null;
     if (!annotationsEnabled) {
       if (overlayRef.current) {
@@ -221,38 +222,46 @@ function InteractiveSlice({
         cancelled = true;
       };
     }
-    const maskImage = new Image();
+    const loadMask = () => {
+      const maskImage = new Image();
+      maskImage.decoding = "async";
+      maskImage.onload = () => {
+        if (cancelled) {
+          return;
+        }
 
-    maskImage.onload = () => {
-      if (cancelled) {
-        return;
-      }
+        const readCanvas = document.createElement("canvas");
+        readCanvas.width = maskImage.naturalWidth;
+        readCanvas.height = maskImage.naturalHeight;
+        const context = readCanvas.getContext("2d", { willReadFrequently: true });
+        if (!context) {
+          return;
+        }
 
-      const readCanvas = document.createElement("canvas");
-      readCanvas.width = maskImage.naturalWidth;
-      readCanvas.height = maskImage.naturalHeight;
-      const context = readCanvas.getContext("2d", { willReadFrequently: true });
-      if (!context) {
-        return;
-      }
+        context.drawImage(maskImage, 0, 0);
+        maskDataRef.current = {
+          width: readCanvas.width,
+          height: readCanvas.height,
+          pixels: context.getImageData(0, 0, readCanvas.width, readCanvas.height).data,
+        };
 
-      context.drawImage(maskImage, 0, 0);
-      maskDataRef.current = {
-        width: readCanvas.width,
-        height: readCanvas.height,
-        pixels: context.getImageData(0, 0, readCanvas.width, readCanvas.height).data,
+        if (overlayRef.current) {
+          overlayRef.current.width = readCanvas.width;
+          overlayRef.current.height = readCanvas.height;
+        }
+        setMaskRevision((current) => current + 1);
       };
-
-      if (overlayRef.current) {
-        overlayRef.current.width = readCanvas.width;
-        overlayRef.current.height = readCanvas.height;
-      }
-      setMaskRevision((current) => current + 1);
+      maskImage.src = maskSrc ?? sliceMaskUrl(plane, index, resolution);
     };
 
-    maskImage.src = maskSrc ?? sliceMaskUrl(plane, index, resolution);
+    if (resolution === 10) {
+      loadDelay = window.setTimeout(loadMask, 90);
+    } else {
+      loadMask();
+    }
     return () => {
       cancelled = true;
+      if (loadDelay !== null) window.clearTimeout(loadDelay);
     };
   }, [annotationsEnabled, index, maskSrc, plane, resolution]);
 
