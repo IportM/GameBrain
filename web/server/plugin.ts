@@ -54,16 +54,63 @@ export function importApi(): Plugin {
   const script = resolve(projectRoot, "registration", "src", "prepare_native_import.py");
   const registrationScript = resolve(projectRoot, "registration", "src", "map_allen_to_image.py");
   const nativeLabelsScript = resolve(projectRoot, "registration", "src", "export_native_labels_web.py");
+  const nativeRegionWorkerScript = resolve(projectRoot, "registration", "src", "native_region_worker.py");
   const connectivityScript = resolve(projectRoot, "registration", "src", "prepare_connectivity_experiment.py");
   const nativeConnectivityScript = resolve(projectRoot, "registration", "src", "map_connectivity_to_image.py");
+  const modalityImportScript = resolve(projectRoot, "registration", "src", "prepare_modality_import.py");
+  const regionStatisticsScript = resolve(projectRoot, "registration", "src", "compute_region_statistics.py");
+  const regionStatisticsExportScript = resolve(projectRoot, "registration", "src", "export_region_statistics.py");
   const importsRoot = resolve(projectRoot, "registration", "imports");
   const connectivityRoot = resolve(projectRoot, "registration", "connectivity");
   let process: ChildProcessWithoutNullStreams | null = null;
   let registrationProcess: ChildProcessWithoutNullStreams | null = null;
   let connectivityProcess: ChildProcessWithoutNullStreams | null = null;
   let nativeConnectivityProcess: ChildProcessWithoutNullStreams | null = null;
+  let modalityProcess: ChildProcessWithoutNullStreams | null = null;
   let currentOutput: string | null = null;
   let currentConnectivityOutput: string | null = null;
+  let nativeRegionQueue: Promise<unknown> = Promise.resolve();
+  const nativeRegionJobs = new Map<string, Promise<boolean>>();
+  let nativeRegionWorker: ChildProcessWithoutNullStreams | null = null;
+  let nativeRegionWorkerKey = "";
+  let nativeRegionWorkerBuffer = "";
+  const nativeRegionPending = new Map<string, (success: boolean) => void>();
+  const nativePickPending = new Map<string, (regionId: number | null) => void>();
+  let nativePickSequence = 0;
+  const stopNativeRegionWorker = async () => {
+    const worker = nativeRegionWorker;
+    nativeRegionWorker = null;
+    nativeRegionWorkerKey = "";
+    nativeRegionWorkerBuffer = "";
+    for (const resolvePending of nativeRegionPending.values()) resolvePending(false);
+    nativeRegionPending.clear();
+    for (const resolvePending of nativePickPending.values()) resolvePending(null);
+    nativePickPending.clear();
+    if (!worker || worker.exitCode !== null) return;
+    await new Promise<void>((resolveStopped) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        resolveStopped();
+      };
+      worker.once("close", finish);
+      worker.kill();
+      setTimeout(finish, 2_000);
+    });
+  };
+
+  const clearDirectory = (directory: string) => {
+    mkdirSync(directory, { recursive: true });
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      rmSync(resolve(directory, entry.name), {
+        recursive: entry.isDirectory(),
+        force: true,
+        maxRetries: 5,
+        retryDelay: 150,
+      });
+    }
+  };
   let state: ImportState = {
     status: "idle",
     startedAt: null,
@@ -93,6 +140,8 @@ export function importApi(): Plugin {
     message: "Projetez la carte dans l'image importée",
     logTail: [],
   };
+  let modalityStatus: "idle" | "uploading" | "completed" | "failed" = "idle";
+  let modalityMessage = "Importez une modalité NIfTI 3D";
 
   const viewerManifest = () => {
     if (!currentOutput) return null;
@@ -118,6 +167,148 @@ export function importApi(): Plugin {
       logTail: [],
       fileName: basename(latest).replace(/-\d{4}-\d{2}-\d{2}T.*$/, ""),
     };
+  };
+
+  const startNativeRegionWorker = (
+    labels: string,
+    volumeCache: string,
+    outputDir: string,
+  ) => {
+    const workerKey = `${labels}|${volumeCache}|${outputDir}`;
+    if (nativeRegionWorker && nativeRegionWorkerKey === workerKey) {
+      return nativeRegionWorker;
+    }
+    nativeRegionWorker?.kill();
+    for (const resolvePending of nativeRegionPending.values()) resolvePending(false);
+    nativeRegionPending.clear();
+    nativeRegionWorkerKey = workerKey;
+    nativeRegionWorkerBuffer = "";
+    nativeRegionWorker = spawn(
+      python,
+      [
+        nativeRegionWorkerScript,
+        "--labels",
+        labels,
+        "--volume-cache",
+        volumeCache,
+        "--output-dir",
+        outputDir,
+      ],
+      {
+        cwd: projectRoot,
+        env: { ...processEnv, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
+        windowsHide: true,
+      },
+    );
+    nativeRegionWorker.stdout.on("data", (chunk: Buffer) => {
+      nativeRegionWorkerBuffer += chunk.toString("utf8");
+      const lines = nativeRegionWorkerBuffer.split(/\r?\n/);
+      nativeRegionWorkerBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const message = JSON.parse(line) as {
+            requestId?: string;
+            regionId?: number;
+            ok?: boolean;
+          };
+          if (message.requestId !== undefined) {
+            nativePickPending.get(message.requestId)?.(
+              message.ok && message.regionId !== undefined && message.regionId > 0
+                ? message.regionId
+                : null,
+            );
+            nativePickPending.delete(message.requestId);
+            continue;
+          }
+          if (message.regionId === undefined) continue;
+          const key = String(message.regionId);
+          nativeRegionPending.get(key)?.(Boolean(message.ok));
+          nativeRegionPending.delete(key);
+        } catch {
+          // Ignore non-protocol output from scientific libraries.
+        }
+      }
+    });
+    const stopWorker = () => {
+      for (const resolvePending of nativeRegionPending.values()) resolvePending(false);
+      nativeRegionPending.clear();
+      for (const resolvePending of nativePickPending.values()) resolvePending(null);
+      nativePickPending.clear();
+      nativeRegionWorker = null;
+      nativeRegionWorkerKey = "";
+    };
+    nativeRegionWorker.on("error", stopWorker);
+    nativeRegionWorker.on("close", stopWorker);
+    return nativeRegionWorker;
+  };
+
+  const warmCurrentNativeRegionWorker = () => {
+    if (!currentOutput) return;
+    const registrationOutput = resolve(currentOutput, "..", "registration");
+    const labels = resolve(registrationOutput, "allen_labels_in_input_space.nii.gz");
+    const nativeWeb = resolve(registrationOutput, "native-web");
+    const volumeCache = resolve(nativeWeb, "detailed-labels.npy");
+    if (
+      existsSync(labels)
+      && existsSync(volumeCache)
+      && existsSync(nativeRegionWorkerScript)
+    ) {
+      startNativeRegionWorker(labels, volumeCache, resolve(nativeWeb, "detailed-regions"));
+    }
+  };
+
+  const ensureNativeRegionMesh = (
+    labels: string,
+    volumeCache: string,
+    regionId: string,
+    output: string,
+  ) => {
+    if (existsSync(output)) return Promise.resolve(true);
+    const existing = nativeRegionJobs.get(output);
+    if (existing) return existing;
+
+    const job = nativeRegionQueue.then(() => new Promise<boolean>((resolveJob) => {
+      if (existsSync(output)) {
+        resolveJob(true);
+        return;
+      }
+      const outputDir = dirname(output);
+      const worker = startNativeRegionWorker(labels, volumeCache, outputDir);
+      nativeRegionPending.set(regionId, (success) => resolveJob(success && existsSync(output)));
+      worker.stdin.write(`${regionId}\n`);
+    }));
+    nativeRegionQueue = job.catch(() => false);
+    nativeRegionJobs.set(output, job);
+    void job.finally(() => nativeRegionJobs.delete(output));
+    return job;
+  };
+
+  const pickNativeRegion = (
+    point: [number, number, number],
+    direction: [number, number, number],
+  ) => {
+    if (!currentOutput) return Promise.resolve<number | null>(null);
+    const registrationOutput = resolve(currentOutput, "..", "registration");
+    const labels = resolve(registrationOutput, "allen_labels_in_input_space.nii.gz");
+    const nativeWeb = resolve(registrationOutput, "native-web");
+    const volumeCache = resolve(nativeWeb, "detailed-labels.npy");
+    if (!existsSync(labels) || !existsSync(volumeCache)) {
+      return Promise.resolve<number | null>(null);
+    }
+    const worker = startNativeRegionWorker(labels, volumeCache, resolve(nativeWeb, "detailed-regions"));
+    const requestId = `pick-${++nativePickSequence}`;
+    return new Promise<number | null>((resolvePick) => {
+      const timeout = setTimeout(() => {
+        nativePickPending.delete(requestId);
+        resolvePick(null);
+      }, 3000);
+      nativePickPending.set(requestId, (regionId) => {
+        clearTimeout(timeout);
+        resolvePick(regionId);
+      });
+      worker.stdin.write(`${JSON.stringify({ requestId, point, direction })}\n`);
+    });
   };
   restoreLatestImport();
 
@@ -169,6 +360,96 @@ export function importApi(): Plugin {
     hasViewerAssets: Boolean(viewerManifest()),
     viewerManifest: viewerManifest(),
   });
+  const modalityRoot = () => currentOutput ? resolve(currentOutput, "..", "modalities") : null;
+  const modalityBinaryCache = new Map<string, {
+    values: Float32Array;
+    mask: Uint8Array;
+    shape: [number, number, number];
+  }>();
+  const modalitySlice = (root: string, id: string, plane: string, index: number) => {
+    const directory = resolve(root, id);
+    let cached = modalityBinaryCache.get(directory);
+    if (!cached) {
+      const manifest = JSON.parse(readFileSync(resolve(directory, "manifest.json"), "utf8"));
+      const valueBuffer = readFileSync(resolve(directory, "volume.float32"));
+      const maskBuffer = readFileSync(resolve(directory, "brain-mask.uint8"));
+      cached = {
+        values: new Float32Array(
+          valueBuffer.buffer,
+          valueBuffer.byteOffset,
+          valueBuffer.byteLength / Float32Array.BYTES_PER_ELEMENT,
+        ),
+        mask: new Uint8Array(maskBuffer.buffer, maskBuffer.byteOffset, maskBuffer.byteLength),
+        shape: manifest.volume_shape,
+      };
+      modalityBinaryCache.set(directory, cached);
+    }
+    const [axis0, axis1, axis2] = cached.shape;
+    const count = plane === "coronal" ? axis0 : plane === "sagittal" ? axis2 : axis1;
+    if (!Number.isInteger(index) || index < 0 || index >= count) return null;
+    const width = plane === "sagittal" ? axis0 : axis2;
+    const height = plane === "coronal" ? axis1 : plane === "sagittal" ? axis1 : axis0;
+    const values = new Float32Array(width * height);
+    const mask = new Uint8Array(width * height);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const a = plane === "coronal" ? index : plane === "sagittal" ? axis0 - 1 - x : y;
+        const b = plane === "axial" ? index : y;
+        const c = plane === "sagittal" ? index : x;
+        const source = (a * axis1 + b) * axis2 + c;
+        const target = y * width + x;
+        values[target] = cached.values[source];
+        mask[target] = cached.mask[source];
+      }
+    }
+    return {
+      bytes: Buffer.concat([
+        Buffer.from(values.buffer, values.byteOffset, values.byteLength),
+        Buffer.from(mask.buffer, mask.byteOffset, mask.byteLength),
+      ]),
+      width,
+      height,
+    };
+  };
+  const currentRareInput = () => {
+    if (!currentOutput) return null;
+    const job = resolve(currentOutput, "..");
+    return [resolve(job, "input.nii.gz"), resolve(job, "input.nii")]
+      .find((path) => existsSync(path)) ?? null;
+  };
+  const modalityRecords = () => {
+    const root = modalityRoot();
+    if (!root || !existsSync(root)) return [];
+    return readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^[a-zA-Z0-9_-]+$/.test(entry.name))
+      .map((entry) => {
+        const manifestPath = resolve(root, entry.name, "manifest.json");
+        if (!existsSync(manifestPath)) return null;
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+        return {
+          id: entry.name,
+          name: String(manifest.name),
+          sourceFile: String(manifest.source_file),
+          geometryStatus: manifest.geometry_status,
+          shape: manifest.shape,
+          spacingMm: manifest.spacing_mm,
+          sourceShape: manifest.source_shape,
+          sourceSpacingMm: manifest.source_spacing_mm,
+          finiteVoxels: Number(manifest.finite_voxels),
+          nonzeroVoxels: Number(manifest.nonzero_voxels),
+          valueRange: manifest.value_range,
+          percentiles: manifest.percentiles,
+          sliceCounts: manifest.slice_counts,
+          volumeShape: manifest.volume_shape,
+        };
+      })
+      .filter(Boolean);
+  };
+  const modalityResponsePayload = () => ({
+    status: modalityStatus,
+    message: modalityMessage,
+    modalities: modalityRecords(),
+  });
   const nativeRegistrationManifest = () => currentOutput
     ? resolve(currentOutput, "..", "registration", "native-web", "manifest.json")
     : null;
@@ -199,6 +480,9 @@ export function importApi(): Plugin {
       && existsSync(manifest)
       && statSync(manifest).mtimeMs >= statSync(registrationManifest).mtimeMs,
     );
+    const nativeManifest = manifest && existsSync(manifest)
+      ? JSON.parse(readFileSync(manifest, "utf8"))
+      : null;
     return {
       ...registrationState,
       ...(completedAssets && registrationState.status !== "running"
@@ -210,6 +494,9 @@ export function importApi(): Plugin {
           }
         : {}),
       hasNativeAssets: Boolean(manifest && existsSync(manifest)),
+      nativeRegionIds: Array.isArray(nativeManifest?.available_regions)
+        ? nativeManifest.available_regions
+        : [],
     };
   };
   const pushLog = (chunk: Buffer) => {
@@ -305,7 +592,8 @@ export function importApi(): Plugin {
   return {
     name: "gamebrain-import-api",
     configureServer(server) {
-      server.middlewares.use((request, response, next) => {
+      warmCurrentNativeRegionWorker();
+      server.middlewares.use(async (request, response, next) => {
         if (request.url?.startsWith("/api/") && !isLocalApiRequest(request)) {
           response.statusCode = 403;
           response.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -315,6 +603,356 @@ export function importApi(): Plugin {
         if (request.url === "/api/import/status" && request.method === "GET") {
           response.setHeader("Content-Type", "application/json; charset=utf-8");
           response.end(JSON.stringify(responsePayload()));
+          return;
+        }
+        if (request.url === "/api/modalities/status" && request.method === "GET") {
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          response.end(JSON.stringify(modalityResponsePayload()));
+          return;
+        }
+        if (request.url === "/api/modalities/import" && request.method === "POST") {
+          const rareInput = currentRareInput();
+          const brainMask = currentOutput
+            ? resolve(currentOutput, "..", "extraction", "brain_mask.nii.gz")
+            : null;
+          if (!currentOutput || !rareInput || !brainMask || !existsSync(brainMask)) {
+            response.statusCode = 409;
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            response.end(JSON.stringify({ ...modalityResponsePayload(), status: "failed", message: "Importez d'abord une RARE" }));
+            return;
+          }
+          if (modalityProcess || process || registrationProcess) {
+            response.statusCode = 409;
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Un traitement est déjà en cours" }));
+            return;
+          }
+          const encodedFileName = request.headers["x-file-name"];
+          const encodedModalityName = request.headers["x-modality-name"];
+          const fileName = basename(
+            typeof encodedFileName === "string" ? decodeURIComponent(encodedFileName) : "",
+          );
+          const requestedName = typeof encodedModalityName === "string"
+            ? decodeURIComponent(encodedModalityName).trim().slice(0, 80)
+            : "";
+          const lowerName = fileName.toLocaleLowerCase();
+          if (!fileName || !requestedName || (!lowerName.endsWith(".nii") && !lowerName.endsWith(".nii.gz"))) {
+            response.statusCode = 400;
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            response.end(JSON.stringify({ ...modalityResponsePayload(), status: "failed", message: "Nom et fichier NIfTI 3D requis" }));
+            return;
+          }
+          const contentLength = Number(request.headers["content-length"] ?? 0);
+          if (!Number.isFinite(contentLength) || contentLength <= 0 || contentLength > 2_000_000_000) {
+            response.statusCode = 413;
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            response.end(JSON.stringify({ ...modalityResponsePayload(), status: "failed", message: "Taille de fichier invalide" }));
+            return;
+          }
+          const stem = fileName.replace(/\.nii(?:\.gz)?$/i, "").replace(/[^a-zA-Z0-9_-]+/g, "-");
+          const id = `${stem || "modalite"}-${Date.now()}`;
+          const root = modalityRoot()!;
+          const output = resolve(root, id);
+          const extension = lowerName.endsWith(".nii.gz") ? ".nii.gz" : ".nii";
+          const input = resolve(output, `source${extension}`);
+          mkdirSync(output, { recursive: true });
+          modalityStatus = "uploading";
+          modalityMessage = "Import et validation de la modalité";
+          const destination = createWriteStream(input, { flags: "wx" });
+          request.pipe(destination);
+          destination.on("finish", () => {
+            modalityProcess = spawn(
+              python,
+              [
+                modalityImportScript,
+                "--input", input,
+                "--reference", rareInput,
+                "--mask", brainMask,
+                "--output", output,
+                "--name", requestedName,
+                "--source-name", fileName,
+              ],
+              {
+                cwd: projectRoot,
+                env: { ...processEnv, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
+                windowsHide: true,
+              },
+            );
+            let diagnostics = "";
+            modalityProcess.stdout.on("data", (chunk: Buffer) => { diagnostics += chunk.toString("utf8"); });
+            modalityProcess.stderr.on("data", (chunk: Buffer) => { diagnostics += chunk.toString("utf8"); });
+            modalityProcess.on("error", (error) => {
+              modalityStatus = "failed";
+              modalityMessage = error.message;
+              modalityProcess = null;
+              if (!response.headersSent) {
+                response.statusCode = 500;
+                response.setHeader("Content-Type", "application/json; charset=utf-8");
+                response.end(JSON.stringify(modalityResponsePayload()));
+              }
+            });
+            modalityProcess.on("close", (code) => {
+              const succeeded = code === 0 && existsSync(resolve(output, "manifest.json"));
+              modalityStatus = succeeded ? "completed" : "failed";
+              modalityMessage = succeeded
+                ? "Modalité prête"
+                : diagnostics.trim().split(/\r?\n/).filter(Boolean).at(-1) ?? "Validation impossible";
+              modalityProcess = null;
+              if (!succeeded) rmSync(output, { recursive: true, force: true });
+              if (!response.headersSent) {
+                response.statusCode = succeeded ? 201 : 422;
+                response.setHeader("Content-Type", "application/json; charset=utf-8");
+                response.end(JSON.stringify(modalityResponsePayload()));
+              }
+            });
+          });
+          destination.on("error", (error) => {
+            modalityStatus = "failed";
+            modalityMessage = error.message;
+            rmSync(output, { recursive: true, force: true });
+            if (!response.headersSent) {
+              response.statusCode = 500;
+              response.setHeader("Content-Type", "application/json; charset=utf-8");
+              response.end(JSON.stringify(modalityResponsePayload()));
+            }
+          });
+          return;
+        }
+        if (request.url?.startsWith("/api/modalities/") && request.method === "POST") {
+          const pathname = new URL(request.url, "http://localhost").pathname;
+          const exportMatch = pathname.match(
+            /^\/api\/modalities\/([a-zA-Z0-9_-]+)\/export-values$/,
+          );
+          if (exportMatch) {
+            let rawBody = "";
+            for await (const chunk of request) {
+              rawBody += Buffer.from(chunk).toString("utf8");
+              if (rawBody.length > 100_000) break;
+            }
+            let regionIds: number[] = [];
+            try {
+              const body = JSON.parse(rawBody) as { regionIds?: unknown };
+              if (Array.isArray(body.regionIds)) {
+                regionIds = [...new Set(body.regionIds
+                  .map(Number)
+                  .filter((value) => Number.isSafeInteger(value) && value > 0))];
+              }
+            } catch {
+              // Invalid JSON is handled as an empty selection below.
+            }
+            if (regionIds.length === 0 || regionIds.length > 1000) {
+              response.statusCode = 400;
+              response.setHeader("Content-Type", "application/json; charset=utf-8");
+              response.end(JSON.stringify({ message: "Sélection de régions invalide" }));
+              return;
+            }
+            const root = modalityRoot();
+            const directory = root ? resolve(root, exportMatch[1]) : null;
+            const input = directory ? resolve(directory, "prepared.nii.gz") : null;
+            const manifestPath = directory ? resolve(directory, "manifest.json") : null;
+            const labels = currentOutput
+              ? resolve(currentOutput, "..", "registration", "allen_labels_in_input_space.nii.gz")
+              : null;
+            if (
+              !directory || !input || !manifestPath || !labels
+              || !existsSync(input) || !existsSync(manifestPath) || !existsSync(labels)
+            ) {
+              response.statusCode = 409;
+              response.setHeader("Content-Type", "application/json; charset=utf-8");
+              response.end(JSON.stringify({ message: "Modalité ou annotations Allen indisponibles" }));
+              return;
+            }
+            const modalityName = String(JSON.parse(readFileSync(manifestPath, "utf8")).name);
+            const result = await new Promise<{ ok: boolean; output: string }>((resolveResult) => {
+              let stdout = "";
+              let stderr = "";
+              const child = spawn(
+                python,
+                [
+                  regionStatisticsExportScript,
+                  "--input",
+                  input,
+                  "--labels",
+                  labels,
+                  "--modality-name",
+                  modalityName,
+                  "--region-ids",
+                  regionIds.join(","),
+                ],
+                {
+                  cwd: projectRoot,
+                  env: { ...processEnv, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
+                  windowsHide: true,
+                },
+              );
+              child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+              child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+              child.on("error", (error) => resolveResult({ ok: false, output: error.message }));
+              child.on("close", (code) => resolveResult({
+                ok: code === 0,
+                output: code === 0 ? stdout : stderr.trim() || stdout.trim(),
+              }));
+            });
+            if (!result.ok) {
+              response.statusCode = 422;
+              response.setHeader("Content-Type", "application/json; charset=utf-8");
+              response.end(JSON.stringify({ message: result.output || "Export impossible" }));
+              return;
+            }
+            const safeName = modalityName.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-|-$/g, "") || "modalite";
+            response.setHeader("Content-Type", "text/csv; charset=utf-8");
+            response.setHeader("Content-Disposition", `attachment; filename="gamebrain-${safeName}.csv"`);
+            response.end(`\uFEFF${result.output}`);
+            return;
+          }
+        }
+        if (request.url?.startsWith("/api/modalities/") && request.method === "GET") {
+          const pathname = new URL(request.url, "http://localhost").pathname;
+          const statisticsMatch = pathname.match(
+            /^\/api\/modalities\/([a-zA-Z0-9_-]+)\/statistics\/(\d+)$/,
+          );
+          if (statisticsMatch) {
+            const root = modalityRoot();
+            const labels = currentOutput
+              ? resolve(currentOutput, "..", "registration", "allen_labels_in_input_space.nii.gz")
+              : null;
+            const input = root ? resolve(root, statisticsMatch[1], "prepared.nii.gz") : null;
+            if (!root || !labels || !input || !existsSync(labels) || !existsSync(input)) {
+              response.statusCode = 409;
+              response.setHeader("Content-Type", "application/json; charset=utf-8");
+              response.end(JSON.stringify({ message: "Modalité ou annotations Allen indisponibles" }));
+              return;
+            }
+            const result = await new Promise<{ ok: boolean; output: string }>((resolveResult) => {
+              let stdout = "";
+              let stderr = "";
+              const child = spawn(
+                python,
+                [
+                  regionStatisticsScript,
+                  "--input",
+                  input,
+                  "--labels",
+                  labels,
+                  "--region-id",
+                  statisticsMatch[2],
+                ],
+                {
+                  cwd: projectRoot,
+                  env: { ...processEnv, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
+                  windowsHide: true,
+                },
+              );
+              child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+              child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+              child.on("error", (error) => resolveResult({ ok: false, output: error.message }));
+              child.on("close", (code) => resolveResult({
+                ok: code === 0,
+                output: code === 0 ? stdout.trim() : stderr.trim() || stdout.trim(),
+              }));
+            });
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            if (!result.ok) {
+              response.statusCode = 422;
+              response.end(JSON.stringify({ message: result.output || "Calcul impossible" }));
+              return;
+            }
+            response.end(result.output);
+            return;
+          }
+        }
+        if (request.url?.startsWith("/api/modalities/") && request.method === "DELETE") {
+          if (modalityProcess) {
+            response.statusCode = 409;
+            response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Un import est en cours" }));
+            return;
+          }
+          const id = decodeURIComponent(new URL(request.url, "http://localhost").pathname.slice("/api/modalities/".length));
+          const root = modalityRoot();
+          if (!root || !/^[a-zA-Z0-9_-]+$/.test(id)) {
+            response.statusCode = 400;
+            response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Modalité invalide" }));
+            return;
+          }
+          const target = resolve(root, id);
+          if (!target.toLocaleLowerCase().startsWith(`${resolve(root).toLocaleLowerCase()}\\`)) {
+            response.statusCode = 400;
+            response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Chemin invalide" }));
+            return;
+          }
+          modalityBinaryCache.delete(target);
+          rmSync(target, { recursive: true, force: true });
+          modalityStatus = "idle";
+          modalityMessage = "Modalité supprimée";
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          response.end(JSON.stringify(modalityResponsePayload()));
+          return;
+        }
+        if (request.url?.startsWith("/api/modalities/") && request.method === "GET") {
+          const pathname = new URL(request.url, "http://localhost").pathname;
+          const match = pathname.match(
+            /^\/api\/modalities\/([a-zA-Z0-9_-]+)\/((?:slices|slices-masked)\/(coronal|sagittal|axial)\/(?:coronal|sagittal|axial)-\d{3,4}\.webp)$/,
+          );
+          const volumeMatch = pathname.match(
+            /^\/api\/modalities\/([a-zA-Z0-9_-]+)\/(volume\.float32|brain-mask\.uint8)$/,
+          );
+          const rawSliceMatch = pathname.match(
+            /^\/api\/modalities\/([a-zA-Z0-9_-]+)\/raw-slice\/(coronal|sagittal|axial)\/(\d+)$/,
+          );
+          const root = modalityRoot();
+          if ((!match && !volumeMatch && !rawSliceMatch) || !root) {
+            response.statusCode = 404;
+            response.end("Modalité indisponible");
+            return;
+          }
+          if (rawSliceMatch) {
+            const result = modalitySlice(root, rawSliceMatch[1], rawSliceMatch[2], Number(rawSliceMatch[3]));
+            if (!result) {
+              response.statusCode = 404;
+              response.end("Coupe indisponible");
+              return;
+            }
+            response.setHeader("Content-Type", "application/octet-stream");
+            response.setHeader("Cache-Control", "private, max-age=3600");
+            response.setHeader("X-Slice-Width", String(result.width));
+            response.setHeader("X-Slice-Height", String(result.height));
+            response.end(result.bytes);
+            return;
+          }
+          const id = match?.[1] ?? volumeMatch![1];
+          const asset = match?.[2] ?? volumeMatch![2];
+          const path = resolve(root, id, asset);
+          if (
+            !path.toLocaleLowerCase().startsWith(`${resolve(root, id).toLocaleLowerCase()}\\`)
+            || !existsSync(path)
+          ) {
+            response.statusCode = 404;
+            response.end("Coupe indisponible");
+            return;
+          }
+          response.setHeader("Content-Type", match ? "image/webp" : "application/octet-stream");
+          response.setHeader("Cache-Control", "no-store");
+          response.end(readFileSync(path));
+          return;
+        }
+        if (request.url?.startsWith("/api/allen-registration/pick") && request.method === "GET") {
+          const url = new URL(request.url, "http://localhost");
+          const values = ["x", "y", "z", "dx", "dy", "dz"].map((name) =>
+            Number(url.searchParams.get(name)),
+          );
+          if (values.some((value) => !Number.isFinite(value) || Math.abs(value) > 100)) {
+            response.statusCode = 400;
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            response.end(JSON.stringify({ regionId: null, message: "Coordonnées invalides" }));
+            return;
+          }
+          const regionId = await pickNativeRegion(
+            [values[0], values[1], values[2]],
+            [values[3], values[4], values[5]],
+          );
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          response.setHeader("Cache-Control", "no-store");
+          response.end(JSON.stringify({ regionId }));
           return;
         }
         if (request.url === "/api/allen-registration/status" && request.method === "GET") {
@@ -329,7 +967,7 @@ export function importApi(): Plugin {
         }
         if (request.url === "/api/session" && request.method === "DELETE") {
           response.setHeader("Content-Type", "application/json; charset=utf-8");
-          if (process || registrationProcess || connectivityProcess || nativeConnectivityProcess) {
+          if (process || registrationProcess || connectivityProcess || nativeConnectivityProcess || modalityProcess) {
             response.statusCode = 409;
             response.end(JSON.stringify({
               ok: false,
@@ -344,9 +982,19 @@ export function importApi(): Plugin {
             response.end(JSON.stringify({ ok: false, message: "Chemin de réinitialisation invalide" }));
             return;
           }
-          for (const path of safeRoots) {
-            rmSync(path, { recursive: true, force: true });
-            mkdirSync(path, { recursive: true });
+          modalityBinaryCache.clear();
+          await stopNativeRegionWorker();
+          try {
+            for (const path of safeRoots) clearDirectory(path);
+          } catch (error) {
+            response.statusCode = 500;
+            response.end(JSON.stringify({
+              ok: false,
+              message: error instanceof Error
+                ? `Impossible de supprimer toutes les données : ${error.message}`
+                : "Impossible de supprimer toutes les données",
+            }));
+            return;
           }
           currentOutput = null;
           currentConnectivityOutput = null;
@@ -696,6 +1344,7 @@ export function importApi(): Plugin {
                 : lastLogLine || `Le recalage s'est arrêté avec le code ${code ?? "inconnu"}`,
             };
             registrationProcess = null;
+            if (succeeded) warmCurrentNativeRegionWorker();
           });
           response.statusCode = 202;
           response.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -703,7 +1352,7 @@ export function importApi(): Plugin {
           return;
         }
         if (request.url === "/api/import/start" && request.method === "POST") {
-          if (process || registrationProcess || state.status === "uploading") {
+          if (process || registrationProcess || modalityProcess || state.status === "uploading") {
             response.statusCode = 409;
             response.setHeader("Content-Type", "application/json; charset=utf-8");
             response.end(JSON.stringify(responsePayload()));
@@ -753,7 +1402,7 @@ export function importApi(): Plugin {
           return;
         }
         if (request.url === "/api/import/current" && request.method === "DELETE") {
-          if (process || registrationProcess || state.status === "uploading" || state.status === "running") {
+          if (process || registrationProcess || modalityProcess || state.status === "uploading" || state.status === "running") {
             response.statusCode = 409;
             response.setHeader("Content-Type", "application/json; charset=utf-8");
             response.end(JSON.stringify({ ...responsePayload(), message: "Une extraction est en cours" }));
@@ -770,7 +1419,11 @@ export function importApi(): Plugin {
             }
             rmSync(job, { recursive: true, force: true });
           }
+          modalityBinaryCache.clear();
           currentOutput = null;
+          nativeRegionWorker?.kill();
+          nativeRegionWorker = null;
+          nativeRegionWorkerKey = "";
           state = {
             status: "idle",
             startedAt: null,
@@ -799,8 +1452,17 @@ export function importApi(): Plugin {
           const pathname = new URL(request.url, "http://localhost").pathname;
           const asset = pathname.slice("/api/allen-registration/viewer/".length);
           const valid = /^(?:masks|outlines)\/(coronal|sagittal|axial)\/(coronal|sagittal|axial)-\d{3,4}\.(?:png|webp)$/.test(asset)
-            || /^regions\/\d+\.glb$/.test(asset);
+            || /^(?:detailed-masks|detailed-outlines)\/(coronal|sagittal|axial)\/(coronal|sagittal|axial)-\d{3,4}\.(?:png|webp)$/.test(asset)
+            || /^(?:regions|detailed-regions)\/\d+\.glb$/.test(asset);
           const path = resolve(currentOutput, "..", "registration", "native-web", asset);
+          const detailedRegion = asset.match(/^detailed-regions\/(\d+)\.glb$/);
+          if (valid && detailedRegion && !existsSync(path)) {
+            const labels = resolve(currentOutput, "..", "registration", "allen_labels_in_input_space.nii.gz");
+            const volumeCache = resolve(currentOutput, "..", "registration", "native-web", "detailed-labels.npy");
+            if (existsSync(labels) && existsSync(volumeCache) && existsSync(nativeRegionWorkerScript)) {
+              await ensureNativeRegionMesh(labels, volumeCache, detailedRegion[1], path);
+            }
+          }
           if (!valid || !existsSync(path)) {
             response.statusCode = 404;
             response.end("Annotation indisponible");

@@ -14,6 +14,17 @@ export function subjectSliceUrl(plane: SlicePlane, index: number, revision: stri
   return `/api/import/viewer/slices/${plane}/${plane}-${paddedIndex}.webp?v=${revisionQuery(revision)}`;
 }
 
+export function modalitySliceUrl(
+  modalityId: string,
+  plane: SlicePlane,
+  index: number,
+  masked = false,
+) {
+  const paddedIndex = paddedSliceIndex(index);
+  const folder = masked ? "slices-masked" : "slices";
+  return `/api/modalities/${encodeURIComponent(modalityId)}/${folder}/${plane}/${plane}-${paddedIndex}.webp`;
+}
+
 export function subjectSlice3DUrl(plane: SlicePlane, index: number, revision: string | null) {
   const paddedIndex = paddedSliceIndex(index);
   return `/api/import/viewer/slices-3d/${plane}/${plane}-${paddedIndex}.webp?v=${revisionQuery(revision)}`;
@@ -38,8 +49,30 @@ export function subjectAllenOutlineUrl(
   return `/api/allen-registration/viewer/outlines/${plane}/${plane}-${paddedIndex}.webp?v=${revisionQuery(revision)}`;
 }
 
+export function subjectAllenDetailedMaskUrl(
+  plane: SlicePlane,
+  index: number,
+  revision: string | null,
+) {
+  const paddedIndex = paddedSliceIndex(index);
+  return `/api/allen-registration/viewer/detailed-masks/${plane}/${plane}-${paddedIndex}.png?v=${revisionQuery(revision)}`;
+}
+
+export function subjectAllenDetailedOutlineUrl(
+  plane: SlicePlane,
+  index: number,
+  revision: string | null,
+) {
+  const paddedIndex = paddedSliceIndex(index);
+  return `/api/allen-registration/viewer/detailed-outlines/${plane}/${plane}-${paddedIndex}.webp?v=${revisionQuery(revision)}`;
+}
+
 export function subjectAllenRegionUrl(regionId: number, revision: string | null) {
   return `/api/allen-registration/viewer/regions/${regionId}.glb?v=${revisionQuery(revision)}`;
+}
+
+export function subjectAllenDetailedRegionUrl(regionId: number, revision: string | null) {
+  return `/api/allen-registration/viewer/detailed-regions/${regionId}.glb?v=${revisionQuery(revision)}`;
 }
 
 export function connectivityOverlayUrl(

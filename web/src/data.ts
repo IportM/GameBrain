@@ -9,6 +9,7 @@ export type AllenRegistrationState = {
   message: string;
   logTail: string[];
   hasNativeAssets: boolean;
+  nativeRegionIds: number[];
 };
 
 export type ConnectivityManifest = {
@@ -100,6 +101,35 @@ export type RegistrationState = {
   viewerManifest: ImportedManifest | null;
 };
 
+export type ModalityRecord = {
+  id: string;
+  name: string;
+  sourceFile: string;
+  geometryStatus: "compatible" | "resampled";
+  shape: [number, number, number];
+  spacingMm: [number, number, number];
+  sourceShape: [number, number, number];
+  sourceSpacingMm: [number, number, number];
+  finiteVoxels: number;
+  nonzeroVoxels: number;
+  valueRange: [number, number];
+  percentiles: [number, number];
+  sliceCounts: Record<SlicePlane, number>;
+  volumeShape: [number, number, number];
+};
+
+export type ModalityState = {
+  status: "idle" | "uploading" | "completed" | "failed";
+  message: string;
+  modalities: ModalityRecord[];
+};
+
+export const INITIAL_MODALITY_STATE: ModalityState = {
+  status: "idle",
+  message: "Importez une modalité NIfTI 3D",
+  modalities: [],
+};
+
 export const INITIAL_REGISTRATION_STATE: RegistrationState = {
   status: "idle",
   startedAt: null,
@@ -118,6 +148,7 @@ export const INITIAL_ALLEN_REGISTRATION_STATE: AllenRegistrationState = {
   message: "Le recalage Allen n'a pas encore été lancé",
   logTail: [],
   hasNativeAssets: false,
+  nativeRegionIds: [],
 };
 
 export const INITIAL_CONNECTIVITY_STATE: ConnectivityState = {
@@ -149,6 +180,16 @@ export async function readImportResponse(response: Response): Promise<Registrati
   }
 }
 
+export async function readModalityResponse(response: Response): Promise<ModalityState> {
+  const body = await response.text();
+  if (!body) throw new Error("Le serveur de modalités ne répond pas");
+  try {
+    return JSON.parse(body) as ModalityState;
+  } catch {
+    throw new Error("La réponse du serveur de modalités est invalide");
+  }
+}
+
 export async function readAllenRegistrationResponse(
   response: Response,
 ): Promise<AllenRegistrationState> {
@@ -157,7 +198,12 @@ export async function readAllenRegistrationResponse(
     throw new Error("Le serveur local de recalage ne répond pas");
   }
   try {
-    return JSON.parse(body) as AllenRegistrationState;
+    const parsed = JSON.parse(body) as Partial<AllenRegistrationState>;
+    return {
+      ...INITIAL_ALLEN_REGISTRATION_STATE,
+      ...parsed,
+      nativeRegionIds: parsed.nativeRegionIds ?? [],
+    };
   } catch {
     throw new Error("La réponse du serveur de recalage est invalide");
   }

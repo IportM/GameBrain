@@ -1,0 +1,19 @@
+{
+  "atlas": "Allen Mouse Brain CCF 2017",
+  "resolution_um": 100,
+  "shape": [
+    132,
+    80,
+    114
+  ],
+  "orientation": "LPS stored through a NIfTI RAS affine",
+  "template_source": "C:\\Users\\Mat_Game\\Desktop\\Game_Dev\\GameBrain\\data-source\\allen-multires\\average_template_50.nrrd",
+  "template_sha256": "6114c341d526f9782ca93b314b3244bb0c4c6cea17045f432d4cda63339915aa",
+  "annotation_source": "C:\\Users\\Mat_Game\\Desktop\\Game_Dev\\GameBrain\\data-source\\allen-multires\\annotation_50.nrrd",
+  "annotation_sha256": "84e7cecea1b03af16e923c3639602b8324929f833425ba03582bf56f962ea0d4",
+  "template": "site_allen_ccf2017_100um.nii.gz",
+  "annotation": "site_allen_ccf2017_annotation_100um.nii.gz",
+  "registration_orientation": "RAS, identical to the FC3R 100_AMBA_ref geometry",
+  "registration_template": "registration_allen_ccf2017_100um.nii.gz",
+  "registration_annotation": "registration_allen_ccf2017_annotation_100um.nii.gz"
+}

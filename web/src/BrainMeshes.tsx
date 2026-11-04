@@ -12,7 +12,11 @@ import {
 } from "three";
 
 import type { RegionDefinition } from "./atlas";
-import { subjectAllenRegionUrl } from "./viewerUrls";
+import {
+  detailedAnnotationMeshUrl,
+  type DetailedAnnotationStructure,
+} from "./detailedAnnotations";
+import { subjectAllenDetailedRegionUrl, subjectAllenRegionUrl } from "./viewerUrls";
 
 const RESTING_REGION_COLOR = "#858c88";
 const DIMMED_BRAIN_OPACITY = 0.07;
@@ -132,6 +136,47 @@ export function AtlasRegion({
   );
 }
 
+export function DetailedAtlasRegion({
+  highlighted = true,
+  structure,
+}: {
+  highlighted?: boolean;
+  structure: DetailedAnnotationStructure;
+}) {
+  const { scene: sourceScene } = useGLTF(detailedAnnotationMeshUrl(structure.id));
+  const scene = useMemo(() => sourceScene.clone(true), [sourceScene]);
+
+  useLayoutEffect(() => {
+    scene.traverse((object: Object3D) => {
+      if (!(object instanceof Mesh)) return;
+      object.geometry.computeVertexNormals();
+      object.material = new MeshStandardMaterial({
+        color: highlighted ? structure.color : RESTING_REGION_COLOR,
+        emissive: highlighted ? structure.color : "#000000",
+        emissiveIntensity: highlighted ? 0.28 : 0,
+        roughness: 0.6,
+        metalness: 0,
+        side: DoubleSide,
+      });
+      object.layers.set(highlighted ? SELECTED_REGION_LAYER : 0);
+      object.raycast = () => undefined;
+      object.castShadow = true;
+      object.receiveShadow = true;
+      object.renderOrder = 3;
+    });
+
+    return () => {
+      scene.traverse((object: Object3D) => {
+        if (object instanceof Mesh && object.material instanceof MeshStandardMaterial) {
+          object.material.dispose();
+        }
+      });
+    };
+  }, [highlighted, scene, structure]);
+
+  return <primitive object={scene} />;
+}
+
 export function WholeBrain({
   baseOpacity,
   clipEnabled,
@@ -240,7 +285,7 @@ export function SubjectBrain({
         metalness: 0,
         side: DoubleSide,
       });
-      object.raycast = () => undefined;
+      object.userData.subjectBrain = true;
       object.castShadow = true;
       object.receiveShadow = true;
     });
@@ -305,4 +350,49 @@ export function SubjectRegion({
   }, [overlay, scene]);
 
   return <primitive object={scene} visible={visible} />;
+}
+
+export function SubjectDetailedRegion({
+  highlighted = true,
+  revision,
+  structure,
+}: {
+  highlighted?: boolean;
+  revision: string | null;
+  structure: DetailedAnnotationStructure;
+}) {
+  const { scene: sourceScene } = useGLTF(
+    subjectAllenDetailedRegionUrl(structure.id, revision),
+  );
+  const scene = useMemo(() => sourceScene.clone(true), [sourceScene]);
+
+  useLayoutEffect(() => {
+    scene.traverse((object: Object3D) => {
+      if (!(object instanceof Mesh)) return;
+      object.geometry.computeVertexNormals();
+      object.material = new MeshStandardMaterial({
+        color: highlighted ? structure.color : RESTING_REGION_COLOR,
+        emissive: highlighted ? structure.color : "#000000",
+        emissiveIntensity: highlighted ? 0.28 : 0,
+        roughness: 0.6,
+        metalness: 0,
+        side: DoubleSide,
+      });
+      object.layers.set(highlighted ? SELECTED_REGION_LAYER : 0);
+      object.raycast = () => undefined;
+      object.castShadow = true;
+      object.receiveShadow = true;
+      object.renderOrder = 3;
+    });
+
+    return () => {
+      scene.traverse((object: Object3D) => {
+        if (object instanceof Mesh && object.material instanceof MeshStandardMaterial) {
+          object.material.dispose();
+        }
+      });
+    };
+  }, [highlighted, scene, structure]);
+
+  return <primitive object={scene} />;
 }

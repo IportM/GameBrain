@@ -1,12 +1,22 @@
-import { memo, Suspense, useMemo } from "react";
-import { Canvas, type ThreeEvent } from "@react-three/fiber";
+import {
+  memo,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  type ComponentRef,
+  type MutableRefObject,
+} from "react";
+import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
 import { Environment, OrbitControls, useGLTF } from "@react-three/drei";
-import { Plane, SRGBColorSpace, Vector3 } from "three";
+import { MOUSE, Plane, SRGBColorSpace, Vector3 } from "three";
 
 import ConnectivityVolume from "./ConnectivityVolume";
 import {
   AtlasRegion as AtlasRegionMesh,
+  DetailedAtlasRegion as DetailedAtlasRegionMesh,
   SubjectBrain as SubjectBrainMesh,
+  SubjectDetailedRegion as SubjectDetailedRegionMesh,
   SubjectRegion as SubjectRegionMesh,
   WholeBrain as WholeBrainMesh,
 } from "./BrainMeshes";
@@ -28,8 +38,59 @@ import {
   type SliceResolution,
 } from "./atlas";
 import { subjectSlice3DUrl } from "./viewerUrls";
+import type { DetailedAnnotationStructure } from "./detailedAnnotations";
 
 export type ViewerSource = "allen" | "subject";
+
+type SavedCameraView = {
+  position: [number, number, number];
+  target: [number, number, number];
+};
+
+type CameraViewStore = Record<ViewerSource, SavedCameraView | null>;
+
+function IndependentOrbitControls({
+  source,
+  views,
+}: {
+  source: ViewerSource;
+  views: MutableRefObject<CameraViewStore>;
+}) {
+  const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
+  const { camera } = useThree();
+
+  useEffect(() => {
+    const saved = views.current[source];
+    const position = saved?.position ?? [15, 13, 16];
+    const target = saved?.target ?? [0, 0, 0];
+    camera.position.set(...position);
+    controls.current?.target.set(...target);
+    controls.current?.update();
+  }, [camera, source, views]);
+
+  return (
+    <OrbitControls
+      ref={controls}
+      makeDefault
+      enablePan
+      minDistance={8}
+      maxDistance={50}
+      dampingFactor={0.08}
+      mouseButtons={{
+        LEFT: MOUSE.ROTATE,
+        MIDDLE: MOUSE.PAN,
+        RIGHT: MOUSE.PAN,
+      }}
+      onChange={() => {
+        if (!controls.current) return;
+        views.current[source] = {
+          position: camera.position.toArray() as [number, number, number],
+          target: controls.current.target.toArray() as [number, number, number],
+        };
+      }}
+    />
+  );
+}
 
 function AtlasScene({
   activePlane,
@@ -37,6 +98,7 @@ function AtlasScene({
   baseOpacity,
   clipDirection,
   connectivityInjectionCenter,
+  connectivityInjectionUrl,
   connectivityInjectionRadius,
   connectivityOpacity,
   connectivityVolumeCenter,
@@ -44,11 +106,15 @@ function AtlasScene({
   connectivityThreshold,
   connectivityVolumeSpacingMm,
   connectivityVolumeShape,
+  detailedRegion,
   hoveredRegionId,
   importedManifest,
   isolatedRegionId,
   onHoverRegion,
+  onHoverDetailedRegion,
   onSelectRegion,
+  onSelectDetailedRegion,
+  persistentDetailedRegions,
   selectedRegionId,
   source,
   subjectRevision,
@@ -64,6 +130,7 @@ function AtlasScene({
   baseOpacity: number;
   clipDirection: ClipDirection;
   connectivityInjectionCenter?: [number, number, number];
+  connectivityInjectionUrl?: string;
   connectivityInjectionRadius: number;
   connectivityOpacity: number;
   connectivityVolumeCenter?: [number, number, number];
@@ -71,11 +138,15 @@ function AtlasScene({
   connectivityThreshold: number;
   connectivityVolumeSpacingMm: number | [number, number, number];
   connectivityVolumeShape?: [number, number, number];
+  detailedRegion: DetailedAnnotationStructure | null;
   hoveredRegionId: number | null;
   importedManifest: ImportedManifest | null;
   isolatedRegionId: number | null;
   onHoverRegion: (regionId: number | null) => void;
+  onHoverDetailedRegion: (regionId: number | null) => void;
   onSelectRegion: (regionId: number | null) => void;
+  onSelectDetailedRegion: (regionId: number | null) => void;
+  persistentDetailedRegions: DetailedAnnotationStructure[];
   selectedRegionId: number | null;
   source: ViewerSource;
   subjectRevision: string | null;
@@ -86,6 +157,9 @@ function AtlasScene({
   visibility: Record<number, boolean>;
   wholeBrainVisible: boolean;
 }) {
+  const cameraViews = useRef<CameraViewStore>({ allen: null, subject: null });
+  const subjectHoverTimer = useRef<number | null>(null);
+  const subjectPickSequence = useRef(0);
   const clippingPlane = useMemo(() => {
     const plane = new Plane();
     const offset = importedManifest
@@ -112,12 +186,17 @@ function AtlasScene({
     point.y *= -1;
     return plane.setFromNormalAndCoplanarPoint(normal, point);
   }, [activePlane, clipDirection, importedManifest, sliceIndex, sliceResolution]);
-  const contextActive = slice3DMode === "clip" || selectedRegionId !== null;
+  const detailedRegionIsMajor = detailedRegion !== null && REGION_BY_ID.has(detailedRegion.id);
+  const contextActive =
+    slice3DMode === "clip" || selectedRegionId !== null || detailedRegion !== null;
+  const pointerInteractionLocked = slice3DMode === "clip" || selectedRegionId !== null;
   const depthContextActive =
-    contextActive || connectivityProjectionUrl !== undefined || connectivityInjectionCenter !== undefined;
-  const sceneRegionId = contextActive
-    ? selectedRegionId ?? hoveredRegionId
-    : hoveredRegionId;
+    contextActive || connectivityProjectionUrl !== undefined || connectivityInjectionUrl !== undefined || connectivityInjectionCenter !== undefined;
+  const sceneRegionId = detailedRegion && !detailedRegionIsMajor
+    ? null
+    : contextActive
+      ? selectedRegionId ?? hoveredRegionId
+      : hoveredRegionId;
 
   const regionFromEvent = (event: {
     intersections: ThreeEvent<PointerEvent>["intersections"];
@@ -131,17 +210,84 @@ function AtlasScene({
     return opaqueRegionId ?? hitRegionIds[0] ?? null;
   };
 
+  const subjectPickFromEvent = (event: ThreeEvent<PointerEvent | MouseEvent>) => {
+    const intersection = event.intersections.find(
+      (candidate) => candidate.object.userData.subjectBrain === true,
+    );
+    if (!intersection) return null;
+    const point = intersection.point;
+    const direction = event.ray.direction;
+    return {
+      point: [point.x, -point.y, point.z] as [number, number, number],
+      direction: [direction.x, -direction.y, direction.z] as [number, number, number],
+    };
+  };
+
+  const requestSubjectRegion = async (pick: NonNullable<ReturnType<typeof subjectPickFromEvent>>) => {
+    const parameters = new URLSearchParams({
+      x: String(pick.point[0]),
+      y: String(pick.point[1]),
+      z: String(pick.point[2]),
+      dx: String(pick.direction[0]),
+      dy: String(pick.direction[1]),
+      dz: String(pick.direction[2]),
+    });
+    try {
+      const response = await fetch(`/api/allen-registration/pick?${parameters}`);
+      if (!response.ok) return null;
+      const payload = await response.json() as { regionId?: number | null };
+      return typeof payload.regionId === "number" ? payload.regionId : null;
+    } catch {
+      return null;
+    }
+  };
+
+  useEffect(() => () => {
+    if (subjectHoverTimer.current !== null) window.clearTimeout(subjectHoverTimer.current);
+  }, []);
+
   const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
-    if (contextActive) {
+    if (pointerInteractionLocked) {
       return;
     }
     event.stopPropagation();
+    if (source === "subject" && subjectRegionsAvailable) {
+      const pick = subjectPickFromEvent(event);
+      if (!pick) return;
+      if (subjectHoverTimer.current !== null) window.clearTimeout(subjectHoverTimer.current);
+      const sequence = ++subjectPickSequence.current;
+      subjectHoverTimer.current = window.setTimeout(() => {
+        void requestSubjectRegion(pick).then((regionId) => {
+          if (sequence === subjectPickSequence.current) onHoverDetailedRegion(regionId);
+        });
+      }, 70);
+      return;
+    }
     onHoverRegion(regionFromEvent(event));
   };
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
+    if (source === "subject" && subjectRegionsAvailable) {
+      const pick = subjectPickFromEvent(event);
+      if (!pick) return;
+      const sequence = ++subjectPickSequence.current;
+      void requestSubjectRegion(pick).then((regionId) => {
+        if (sequence !== subjectPickSequence.current) return;
+        if (regionId === null) onSelectRegion(null);
+        else onSelectDetailedRegion(regionId);
+      });
+      return;
+    }
     onSelectRegion(regionFromEvent(event));
+  };
+
+  const clearPointerHover = () => {
+    if (subjectHoverTimer.current !== null) window.clearTimeout(subjectHoverTimer.current);
+    subjectHoverTimer.current = null;
+    subjectPickSequence.current += 1;
+    onHoverDetailedRegion(null);
+    onHoverRegion(null);
   };
 
   return (
@@ -153,13 +299,22 @@ function AtlasScene({
       onCreated={({ gl }) => {
         gl.localClippingEnabled = true;
       }}
-      onPointerMissed={() => onSelectRegion(null)}
+      onContextMenu={(event) => event.preventDefault()}
+      onPointerMissed={() => {
+        onSelectDetailedRegion(null);
+        onSelectRegion(null);
+      }}
       shadows
     >
       <color attach="background" args={["#111513"]} />
       <ResponsiveCameraView />
       <LayeredAtlasRendererView
-        overlayVisible={selectedRegionId !== null || slice3DMode === "clip"}
+        overlayVisible={
+          selectedRegionId !== null ||
+          detailedRegion !== null ||
+          persistentDetailedRegions.length > 0 ||
+          slice3DMode === "clip"
+        }
       />
       <ambientLight intensity={0.18} />
       <hemisphereLight args={["#d8f0e2", "#18201c", 0.55]} />
@@ -186,7 +341,22 @@ function AtlasScene({
               url={connectivityProjectionUrl}
             />
           )}
-          {connectivityInjectionCenter && (
+          {connectivityInjectionUrl && connectivityVolumeShape && (
+            <ConnectivityVolume
+              center={connectivityVolumeCenter}
+              clipEnabled={slice3DMode === "clip"}
+              clippingPlane={clippingPlane}
+              highColor="#fff0d8"
+              lowColor="#ff3f2e"
+              opacity={connectivityOpacity}
+              renderOrder={11}
+              spacingMm={connectivityVolumeSpacingMm}
+              shape={connectivityVolumeShape}
+              threshold={connectivityThreshold}
+              url={connectivityInjectionUrl}
+            />
+          )}
+          {!connectivityInjectionUrl && connectivityInjectionCenter && (
             <mesh position={connectivityInjectionCenter} renderOrder={11}>
               <sphereGeometry args={[connectivityInjectionRadius, 24, 16]} />
               <meshStandardMaterial
@@ -227,7 +397,7 @@ function AtlasScene({
             scale={0.001}
             onClick={handleClick}
             onPointerMove={handlePointerMove}
-            onPointerOut={() => onHoverRegion(null)}
+            onPointerOut={clearPointerHover}
           >
             {source === "subject" ? (
               <SubjectBrainMesh
@@ -272,6 +442,18 @@ function AtlasScene({
                 />
               </Suspense>
             ))}
+            {source === "allen" && detailedRegion && !detailedRegionIsMajor && (
+              <Suspense fallback={null} key={detailedRegion.id}>
+                <DetailedAtlasRegionMesh structure={detailedRegion} />
+              </Suspense>
+            )}
+            {source === "allen" && persistentDetailedRegions
+              .filter((structure) => structure.id !== detailedRegion?.id)
+              .map((structure) => (
+                <Suspense fallback={null} key={`persistent-${structure.id}`}>
+                  <DetailedAtlasRegionMesh highlighted={false} structure={structure} />
+                </Suspense>
+              ))}
             {source === "subject" && subjectRegionsAvailable && REGIONS.map((region) => {
               const highlighted = sceneRegionId === region.id;
               return highlighted && visibility[region.id] ? (
@@ -285,17 +467,30 @@ function AtlasScene({
                 </Suspense>
               ) : null;
             })}
+            {source === "subject" && subjectRegionsAvailable && detailedRegion && (
+              <Suspense fallback={null} key={detailedRegion.id}>
+                <SubjectDetailedRegionMesh
+                  revision={annotationRevision}
+                  structure={detailedRegion}
+                />
+              </Suspense>
+            )}
+            {source === "subject" && subjectRegionsAvailable && persistentDetailedRegions
+              .filter((structure) => structure.id !== detailedRegion?.id)
+              .map((structure) => (
+                <Suspense fallback={null} key={`persistent-${structure.id}`}>
+                  <SubjectDetailedRegionMesh
+                    highlighted={false}
+                    revision={annotationRevision}
+                    structure={structure}
+                  />
+                </Suspense>
+              ))}
           </group>
         </group>
         <Environment preset="studio" environmentIntensity={0.35} />
       </Suspense>
-      <OrbitControls
-        makeDefault
-        enablePan={false}
-        minDistance={8}
-        maxDistance={50}
-        dampingFactor={0.08}
-      />
+      <IndependentOrbitControls source={source} views={cameraViews} />
     </Canvas>
   );
 }

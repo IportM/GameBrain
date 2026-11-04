@@ -15,14 +15,17 @@ import type { ViewerSource } from "./AtlasScene";
 import {
   INITIAL_ALLEN_REGISTRATION_STATE,
   INITIAL_CONNECTIVITY_STATE,
+  INITIAL_MODALITY_STATE,
   INITIAL_REGISTRATION_STATE,
   readAllenRegistrationResponse,
   readConnectivityResponse,
   readImportResponse,
+  readModalityResponse,
   type AllenRegistrationState,
   type ConnectivitySearchResponse,
   type ConnectivitySearchResult,
   type ConnectivityState,
+  type ModalityState,
   type RegistrationState,
 } from "./data";
 import {
@@ -45,15 +48,61 @@ import {
   connectivityVolumeUrl,
   nativeConnectivityOverlayUrl,
   nativeConnectivityVolumeUrl,
+  modalitySliceUrl,
   subjectAllenMaskUrl,
-  subjectAllenOutlineUrl,
+  subjectAllenDetailedMaskUrl,
+  subjectAllenDetailedOutlineUrl,
   subjectMaskOutlineUrl,
   subjectSlice3DUrl,
   subjectSliceUrl,
 } from "./viewerUrls";
 import { preloadImages } from "./imagePreload";
+import {
+  loadModalitySlice,
+  type ModalityPalette,
+  type ModalitySlice,
+} from "./modalityVolume";
+import RegionTree from "./RegionTree";
+import {
+  detailedAnnotationMaskUrl,
+  detailedAnnotationOutlineUrl,
+  type DetailedAnnotationManifest,
+  type DetailedAnnotationStructure,
+} from "./detailedAnnotations";
 
 const AtlasScene = lazy(() => import("./AtlasScene"));
+const MAJOR_REGION_IDS = new Set(REGIONS.map((region) => region.id));
+const SUBJECT_VOLUME_CENTER_MM: [number, number, number] = [0, 0, 0];
+const DEFAULT_SUBJECT_VOLUME_SPACING_MM: [number, number, number] = [0.1, 0.1, 0.1];
+
+type RegionStatistics = {
+  region_id: number;
+  region_name: string;
+  region_acronym: string;
+  descendant_count: number;
+  region_voxels: number;
+  valid_voxels: number;
+  excluded_voxels: number;
+  voxel_volume_mm3: number;
+  sampled_volume_mm3: number;
+  statistics: null | {
+    mean: number;
+    std: number;
+    median: number;
+    min: number;
+    max: number;
+    p05: number;
+    p95: number;
+  };
+};
+
+function majorRegionIdFor(structure: DetailedAnnotationStructure) {
+  return [...structure.path].reverse().find((id) => MAJOR_REGION_IDS.has(id)) ?? null;
+}
+
+function formatMeasurement(value: number) {
+  return value.toLocaleString("fr-FR", { maximumSignificantDigits: 6 });
+}
 
 export default function App() {
   const [hoveredRegionId, setHoveredRegionId] = useState<number | null>(null);
@@ -84,6 +133,7 @@ export default function App() {
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [allenRegistrationOpen, setAllenRegistrationOpen] = useState(false);
   const [connectivityOpen, setConnectivityOpen] = useState(false);
+  const [modalitiesOpen, setModalitiesOpen] = useState(false);
   const [connectivityExperimentId, setConnectivityExperimentId] = useState("100140756");
   const [connectivityLoadMode, setConnectivityLoadMode] = useState<"region" | "id">("region");
   const [connectivityRegionQuery, setConnectivityRegionQuery] = useState("Isocortex");
@@ -106,6 +156,26 @@ export default function App() {
     useState<ConnectivityInspection | null>(null);
   const [registrationPending, setRegistrationPending] = useState(false);
   const [registrationFile, setRegistrationFile] = useState<File | null>(null);
+  const [modalityFile, setModalityFile] = useState<File | null>(null);
+  const [modalityName, setModalityName] = useState("");
+  const [modalityState, setModalityState] = useState<ModalityState>(INITIAL_MODALITY_STATE);
+  const [activeModalityId, setActiveModalityId] = useState<string | null>(null);
+  const [loadedModalitySlice, setLoadedModalitySlice] = useState<{
+    key: string;
+    data: ModalitySlice;
+  } | null>(null);
+  const [modalityMin, setModalityMin] = useState(0);
+  const [modalityMax, setModalityMax] = useState(1);
+  const [modalityPalette, setModalityPalette] = useState<ModalityPalette>("gray");
+  const [modalityInverted, setModalityInverted] = useState(false);
+  const [regionStatisticsPending, setRegionStatisticsPending] = useState(false);
+  const [regionStatistics, setRegionStatistics] = useState<RegionStatistics | null>(null);
+  const [regionStatisticsError, setRegionStatisticsError] = useState<string | null>(null);
+  const [regionExportOpen, setRegionExportOpen] = useState(false);
+  const [regionExportSearch, setRegionExportSearch] = useState("");
+  const [regionExportIds, setRegionExportIds] = useState<Set<number>>(() => new Set());
+  const [regionExportPending, setRegionExportPending] = useState(false);
+  const [regionExportError, setRegionExportError] = useState<string | null>(null);
   const [registrationState, setRegistrationState] = useState<RegistrationState>(
     INITIAL_REGISTRATION_STATE,
   );
@@ -115,8 +185,18 @@ export default function App() {
     useState<ConnectivityState>(INITIAL_CONNECTIVITY_STATE);
   const [viewerSource, setViewerSource] = useState<ViewerSource>("allen");
   const [showAllenRegionColors, setShowAllenRegionColors] = useState(true);
+  const [showBrainOnly, setShowBrainOnly] = useState(true);
   const [showImportedMask, setShowImportedMask] = useState(true);
   const [showImportedAnnotations, setShowImportedAnnotations] = useState(true);
+  const [detailedAnnotations, setDetailedAnnotations] =
+    useState<DetailedAnnotationManifest | null>(null);
+  const [hoveredDetailedRegionId, setHoveredDetailedRegionId] = useState<number | null>(null);
+  const [selectedDetailedRegionId, setSelectedDetailedRegionId] = useState<number | null>(null);
+  const [displayedDetailedRegionIds, setDisplayedDetailedRegionIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [regionVisibilityMode, setRegionVisibilityMode] = useState(false);
+  const [nativeSceneDetailedRegionId, setNativeSceneDetailedRegionId] = useState<number | null>(null);
   const activatedSubjectRevision = useRef<string | null>(null);
   const imageMenuRef = useRef<HTMLDetailsElement>(null);
   const sliceWheelDelta = useRef(0);
@@ -133,14 +213,12 @@ export default function App() {
   const [visibility, setVisibility] = useState<Record<number, boolean>>(() =>
     Object.fromEntries(REGIONS.map((region) => [region.id, true])),
   );
-
-  const toggleRegion = (regionId: number) => {
-    setVisibility((current) => ({ ...current, [regionId]: !current[regionId] }));
-    setHoveredRegionId((current) => (current === regionId ? null : current));
-    setMenuHoveredRegionId((current) => (current === regionId ? null : current));
-    setSelectedRegionId((current) => (current === regionId ? null : current));
-    setIsolatedRegionId((current) => (current === regionId ? null : current));
-  };
+  const [isolationSnapshot, setIsolationSnapshot] = useState<{
+    displayedDetailedRegionIds: Set<number>;
+    regionVisibilityMode: boolean;
+    visibility: Record<number, boolean>;
+    wholeBrainVisible: boolean;
+  } | null>(null);
 
   const activeRegionId = connectivityVisible
     ? selectedRegionId
@@ -151,16 +229,114 @@ export default function App() {
       ? menuHoveredRegionId ?? hoveredRegionId
       : activeRegionId;
   const activeRegion = activeRegionId === null ? null : REGION_BY_ID.get(activeRegionId) ?? null;
-  const detailRegion = activeRegion ?? (
+  const detailedStructureById = useMemo(
+    () => new Map(detailedAnnotations?.structures.map((structure) => [structure.id, structure]) ?? []),
+    [detailedAnnotations],
+  );
+  const detailedMaskValueToRegionId = useMemo(
+    () => new Map(
+      detailedAnnotations?.structures.map((structure) => [structure.maskValue, structure.id]) ?? [],
+    ),
+    [detailedAnnotations],
+  );
+  const activeDetailedRegionId = connectivityVisible
+    ? selectedDetailedRegionId
+    : hoveredDetailedRegionId ?? selectedDetailedRegionId;
+  const activeDetailedRegion = activeDetailedRegionId === null
+    ? null
+    : detailedStructureById.get(activeDetailedRegionId) ?? null;
+  const nativeSceneDetailedRegion = nativeSceneDetailedRegionId === null
+    ? null
+    : detailedStructureById.get(nativeSceneDetailedRegionId) ?? null;
+  const detailRegion = activeDetailedRegion ?? activeRegion ?? (
     lastInspectedRegionId === null ? null : REGION_BY_ID.get(lastInspectedRegionId) ?? null
   );
   const selectedRegion =
     selectedRegionId === null ? null : REGION_BY_ID.get(selectedRegionId) ?? null;
+  const selectedDetailedRegion = selectedDetailedRegionId === null
+    ? null
+    : detailedStructureById.get(selectedDetailedRegionId) ?? null;
+  const displayedDetailedRegions = useMemo(
+    () => [...displayedDetailedRegionIds]
+      .filter((regionId) => !MAJOR_REGION_IDS.has(regionId))
+      .map((regionId) => detailedStructureById.get(regionId))
+      .filter((structure): structure is DetailedAnnotationStructure => Boolean(structure)),
+    [detailedStructureById, displayedDetailedRegionIds],
+  );
+  const treeDisplayedRegionIds = useMemo(() => regionVisibilityMode
+    ? new Set([
+        ...displayedDetailedRegionIds,
+        ...REGIONS.filter((region) => visibility[region.id]).map((region) => region.id),
+      ])
+    : new Set<number>(), [displayedDetailedRegionIds, regionVisibilityMode, visibility]);
   const activeSlice = SLICE_PLANES[activePlane];
+  const activeModality = activeModalityId === null
+    ? null
+    : modalityState.modalities.find((modality) => modality.id === activeModalityId) ?? null;
+  const activeModalitySliceKey = activeModality
+    ? `${activeModality.id}:${activePlane}:${sliceIndexesBySource.subject[activePlane]}`
+    : null;
+  const activeModalitySlice = activeModalitySliceKey !== null
+    && loadedModalitySlice?.key === activeModalitySliceKey
+    ? loadedModalitySlice.data
+    : null;
+  const measuredRegionId = selectedDetailedRegionId ?? selectedRegionId;
+  const modalityWindow = useMemo<[number, number]>(
+    () => [modalityMin, modalityMax],
+    [modalityMax, modalityMin],
+  );
   const importedManifest = registrationState.viewerManifest;
   const subjectAnnotationsAvailable =
     allenRegistrationState.status === "completed" &&
     Boolean(allenRegistrationState.hasNativeAssets);
+  const scenePersistentDetailedRegions = useMemo(
+    () => displayedDetailedRegions.filter((structure) => (
+      viewerSource === "allen"
+        ? structure.meshAvailable
+        : subjectAnnotationsAvailable
+          && allenRegistrationState.nativeRegionIds.includes(structure.id)
+    )),
+    [
+      allenRegistrationState.nativeRegionIds,
+      displayedDetailedRegions,
+      subjectAnnotationsAvailable,
+      viewerSource,
+    ],
+  );
+  const exportableRegions = useMemo(() => {
+    if (!detailedAnnotations) return [];
+    const available = new Set(allenRegistrationState.nativeRegionIds);
+    return detailedAnnotations.structures.filter((structure) => (
+      structure.id !== 997 && (available.size === 0 || available.has(structure.id))
+    ));
+  }, [allenRegistrationState.nativeRegionIds, detailedAnnotations]);
+  const filteredExportRegions = useMemo(() => {
+    const query = regionExportSearch.trim().toLocaleLowerCase("fr");
+    if (!query) return exportableRegions;
+    return exportableRegions.filter((structure) => (
+      `${structure.name} ${structure.acronym} ${structure.id}`
+        .toLocaleLowerCase("fr")
+        .includes(query)
+    ));
+  }, [exportableRegions, regionExportSearch]);
+
+  useEffect(() => {
+    if (viewerSource !== "subject") {
+      setNativeSceneDetailedRegionId(null);
+      return;
+    }
+    const targetId = connectivityVisible
+      ? selectedDetailedRegionId
+      : hoveredDetailedRegionId ?? selectedDetailedRegionId;
+    if (targetId === null || connectivityVisible || hoveredDetailedRegionId === null) {
+      setNativeSceneDetailedRegionId(targetId);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setNativeSceneDetailedRegionId(targetId);
+    }, 140);
+    return () => window.clearTimeout(timer);
+  }, [connectivityVisible, hoveredDetailedRegionId, selectedDetailedRegionId, viewerSource]);
   const sliceAnnotationsEnabled =
     viewerSource === "allen" || (viewerSource === "subject" && subjectAnnotationsAvailable);
   const sliceIndexes = sliceIndexesBySource[viewerSource];
@@ -190,17 +366,31 @@ export default function App() {
     ? REGION_BY_ID.get(activeConnectivityInspection.regionId) ?? null
     : null;
   const visibleRegionCount = REGIONS.filter((region) => visibility[region.id]).length;
-  const filteredRegions = useMemo(() => {
-    const normalizedSearch = regionSearch.trim().toLocaleLowerCase("fr");
-    if (!normalizedSearch) {
-      return REGIONS;
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/atlas/detailed-annotations.json")
+      .then((response) => {
+        if (!response.ok) throw new Error("Annotations Allen détaillées indisponibles");
+        return response.json() as Promise<DetailedAnnotationManifest>;
+      })
+      .then((manifest) => {
+        if (!cancelled) setDetailedAnnotations(manifest);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setHoveredDetailedRegionId(null);
+    const detailedSelectionAvailable = viewerSource === "allen"
+      ? sliceResolution === 25
+      : subjectAnnotationsAvailable;
+    if (!detailedSelectionAvailable) {
+      setSelectedDetailedRegionId(null);
     }
-    return REGIONS.filter((region) =>
-      `${region.name} ${region.acronym} ${region.id}`
-        .toLocaleLowerCase("fr")
-        .includes(normalizedSearch),
-    );
-  }, [regionSearch]);
+  }, [activePlane, sliceIndex, sliceResolution, subjectAnnotationsAvailable, viewerSource]);
 
   useEffect(() => {
     const closeImageMenu = (event: PointerEvent) => {
@@ -223,6 +413,8 @@ export default function App() {
   }, []);
 
   const selectRegion = useCallback((regionId: number | null) => {
+    setSelectedDetailedRegionId(null);
+    setHoveredDetailedRegionId(null);
     if (regionId !== null) {
       setVisibility((current) => ({ ...current, [regionId]: true }));
       setLastInspectedRegionId(regionId);
@@ -230,28 +422,75 @@ export default function App() {
     setSelectedRegionId((current) => (current === regionId ? null : regionId));
   }, []);
 
-  const selectRegionFromMenu = (regionId: number) => {
-    setVisibility((current) => ({ ...current, [regionId]: true }));
-    setHoveredRegionId(null);
-    setMenuHoveredRegionId(null);
-    setSelectedRegionId(regionId);
-    setLastInspectedRegionId(regionId);
-    setIsolatedRegionId(null);
-  };
-
-  const hoverRegionFromMenu = (regionId: number) => {
-    if (connectivityVisible || selectedRegionId !== null) {
-      return;
-    }
-    setLastInspectedRegionId(regionId);
-    setMenuHoveredRegionId(regionId);
-  };
-
   const hoverRegionFromViewer = useCallback((regionId: number | null) => {
     if (!connectivityVisible && regionId !== null) {
       setLastInspectedRegionId(regionId);
     }
     setHoveredRegionId(connectivityVisible ? null : regionId);
+  }, [connectivityVisible]);
+
+  const hoverDetailedRegion = useCallback((regionId: number | null) => {
+    setHoveredDetailedRegionId(connectivityVisible ? null : regionId);
+  }, [connectivityVisible]);
+
+  const selectDetailedRegion = useCallback((regionId: number | null) => {
+    const next = selectedDetailedRegionId === regionId ? null : regionId;
+    const structure = next === null ? null : detailedStructureById.get(next) ?? null;
+    const majorRegionId = structure ? majorRegionIdFor(structure) : null;
+    setSelectedDetailedRegionId(next);
+    setSelectedRegionId(majorRegionId);
+    setIsolatedRegionId(null);
+    if (majorRegionId !== null) {
+      setVisibility((visibilityState) => ({ ...visibilityState, [majorRegionId]: true }));
+      setLastInspectedRegionId(majorRegionId);
+    }
+  }, [detailedStructureById, selectedDetailedRegionId]);
+
+  const hoverMajorRegionFromNativeScene = useCallback((regionId: number | null) => {
+    const structure = regionId === null ? null : detailedStructureById.get(regionId) ?? null;
+    setHoveredDetailedRegionId(null);
+    hoverRegionFromViewer(structure ? majorRegionIdFor(structure) : null);
+  }, [detailedStructureById, hoverRegionFromViewer]);
+
+  const selectMajorRegionFromNativeScene = useCallback((regionId: number | null) => {
+    const structure = regionId === null ? null : detailedStructureById.get(regionId) ?? null;
+    selectRegion(structure ? majorRegionIdFor(structure) : null);
+  }, [detailedStructureById, selectRegion]);
+
+  const selectDetailedRegionFromTree = useCallback((structure: DetailedAnnotationStructure) => {
+    if (selectedDetailedRegionId === structure.id) {
+      setSelectedDetailedRegionId(null);
+      setSelectedRegionId(null);
+      setHoveredDetailedRegionId(null);
+      setHoveredRegionId(null);
+      setMenuHoveredRegionId(null);
+      setIsolatedRegionId(null);
+      return;
+    }
+    const majorRegionId = majorRegionIdFor(structure);
+    setSelectedDetailedRegionId(structure.id);
+    setHoveredDetailedRegionId(null);
+    setHoveredRegionId(null);
+    setMenuHoveredRegionId(null);
+    setIsolatedRegionId(null);
+    setSelectedRegionId(majorRegionId);
+    if (majorRegionId !== null) {
+      setVisibility((current) => ({ ...current, [majorRegionId]: true }));
+      setLastInspectedRegionId(majorRegionId);
+    }
+  }, [selectedDetailedRegionId]);
+
+  const hoverDetailedRegionFromTree = useCallback((structure: DetailedAnnotationStructure | null) => {
+    if (structure === null) {
+      setHoveredDetailedRegionId(null);
+      setMenuHoveredRegionId(null);
+      return;
+    }
+    if (connectivityVisible) {
+      return;
+    }
+    setHoveredDetailedRegionId(structure.id);
+    setMenuHoveredRegionId(majorRegionIdFor(structure));
   }, [connectivityVisible]);
 
   const inspectConnectivity = useCallback((inspection: ConnectivityInspection | null) => {
@@ -311,25 +550,120 @@ export default function App() {
     setConnectivityPinnedInspection(null);
   }, [activePlane, sliceIndex, viewerSource]);
 
-  const isolateSelectedRegion = () => {
-    if (!selectedRegion) {
+  const restoreWholeBrainDisplay = useCallback(() => {
+    setWholeBrainVisible(true);
+    setRegionVisibilityMode(false);
+    setVisibility(Object.fromEntries(REGIONS.map((region) => [region.id, true])));
+    setDisplayedDetailedRegionIds(new Set());
+    setIsolationSnapshot(null);
+  }, []);
+
+  const toggleDisplayedDetailedRegion = useCallback((structure: DetailedAnnotationStructure) => {
+    if (!regionVisibilityMode) {
+      setRegionVisibilityMode(true);
+      setWholeBrainVisible(false);
+      setVisibility(Object.fromEntries(
+        REGIONS.map((region) => [region.id, region.id === structure.id]),
+      ));
+      setDisplayedDetailedRegionIds(
+        MAJOR_REGION_IDS.has(structure.id) ? new Set() : new Set([structure.id]),
+      );
+      return;
+    }
+    if (MAJOR_REGION_IDS.has(structure.id)) {
+      const willBeVisible = !visibility[structure.id];
+      const hasAnotherMajorRegion = REGIONS.some(
+        (region) => region.id !== structure.id && visibility[region.id],
+      );
+      if (!willBeVisible && !hasAnotherMajorRegion && displayedDetailedRegionIds.size === 0) {
+        restoreWholeBrainDisplay();
+        return;
+      }
+      setVisibility((current) => ({ ...current, [structure.id]: willBeVisible }));
+      return;
+    }
+    if (
+      displayedDetailedRegionIds.has(structure.id) &&
+      displayedDetailedRegionIds.size === 1 &&
+      !REGIONS.some((region) => visibility[region.id])
+    ) {
+      restoreWholeBrainDisplay();
+      return;
+    }
+    setDisplayedDetailedRegionIds((current) => {
+      const next = new Set(current);
+      if (next.has(structure.id)) next.delete(structure.id);
+      else next.add(structure.id);
+      return next;
+    });
+  }, [displayedDetailedRegionIds, regionVisibilityMode, restoreWholeBrainDisplay, visibility]);
+
+  const toggleWholeBrain = () => {
+    if (!wholeBrainVisible) {
+      restoreWholeBrainDisplay();
       return;
     }
     setWholeBrainVisible(false);
-    setIsolatedRegionId(selectedRegion.id);
-    setVisibility(
-      Object.fromEntries(REGIONS.map((region) => [region.id, region.id === selectedRegion.id])),
+    setRegionVisibilityMode(true);
+  };
+
+  const isolateSelectedRegion = () => {
+    if (isolationSnapshot) {
+      setWholeBrainVisible(isolationSnapshot.wholeBrainVisible);
+      setVisibility(isolationSnapshot.visibility);
+      setDisplayedDetailedRegionIds(isolationSnapshot.displayedDetailedRegionIds);
+      setRegionVisibilityMode(isolationSnapshot.regionVisibilityMode);
+      setIsolationSnapshot(null);
+      return;
+    }
+    const target = selectedDetailedRegion ?? selectedRegion;
+    if (!target) {
+      return;
+    }
+    setIsolationSnapshot({
+      displayedDetailedRegionIds: new Set(displayedDetailedRegionIds),
+      regionVisibilityMode,
+      visibility: { ...visibility },
+      wholeBrainVisible,
+    });
+    setWholeBrainVisible(false);
+    setRegionVisibilityMode(true);
+    setIsolatedRegionId(null);
+    setVisibility(Object.fromEntries(
+      REGIONS.map((region) => [region.id, region.id === target.id]),
+    ));
+    setDisplayedDetailedRegionIds(
+      MAJOR_REGION_IDS.has(target.id) ? new Set() : new Set([target.id]),
     );
   };
 
   const hideSelectedRegion = () => {
-    if (!selectedRegion) {
+    const target = selectedDetailedRegion ?? selectedRegion;
+    if (!target) {
       return;
     }
-    setVisibility((current) => ({ ...current, [selectedRegion.id]: false }));
+    if (MAJOR_REGION_IDS.has(target.id)) {
+      setVisibility((current) => ({ ...current, [target.id]: false }));
+    }
+    setDisplayedDetailedRegionIds((current) => {
+      const next = new Set(current);
+      next.delete(target.id);
+      return next;
+    });
     setHoveredRegionId(null);
     setMenuHoveredRegionId(null);
     setSelectedRegionId(null);
+    setHoveredDetailedRegionId(null);
+    setSelectedDetailedRegionId(null);
+    setIsolatedRegionId(null);
+  };
+
+  const clearSelectedRegion = () => {
+    setHoveredRegionId(null);
+    setMenuHoveredRegionId(null);
+    setSelectedRegionId(null);
+    setHoveredDetailedRegionId(null);
+    setSelectedDetailedRegionId(null);
     setIsolatedRegionId(null);
   };
 
@@ -341,6 +675,11 @@ export default function App() {
     setLastInspectedRegionId(null);
     setSelectedRegionId(null);
     setIsolatedRegionId(null);
+    setHoveredDetailedRegionId(null);
+    setSelectedDetailedRegionId(null);
+    setDisplayedDetailedRegionIds(new Set());
+    setRegionVisibilityMode(false);
+    setIsolationSnapshot(null);
   };
 
   const resetWorkspaceDisplay = () => {
@@ -489,6 +828,10 @@ export default function App() {
         if (sliceAnnotationsEnabled) {
           assets.push(sliceMaskUrl(activePlane, index, sliceResolution));
         }
+        if (sliceResolution === 25 && detailedAnnotations) {
+          assets.push(detailedAnnotationMaskUrl(activePlane, index));
+          assets.push(detailedAnnotationOutlineUrl(activePlane, index));
+        }
         if (connectivityVisible && connectivityState.viewerManifest) {
           if (projectionVisible) {
             assets.push(connectivityOverlayUrl(
@@ -512,7 +855,13 @@ export default function App() {
           }
         }
       } else {
-        assets.push(subjectSliceUrl(activePlane, index, registrationState.finishedAt));
+        assets.push(
+          activeModality
+            ? modalitySliceUrl(activeModality.id, activePlane, index, showBrainOnly)
+            : showBrainOnly
+              ? subjectSlice3DUrl(activePlane, index, registrationState.finishedAt)
+              : subjectSliceUrl(activePlane, index, registrationState.finishedAt),
+        );
         if (slice3DMode === "clip") {
           assets.push(subjectSlice3DUrl(activePlane, index, registrationState.finishedAt));
         }
@@ -521,8 +870,13 @@ export default function App() {
         }
         if (subjectAnnotationsAvailable) {
           assets.push(subjectAllenMaskUrl(activePlane, index, allenRegistrationState.finishedAt));
+          assets.push(subjectAllenDetailedMaskUrl(
+            activePlane,
+            index,
+            allenRegistrationState.finishedAt,
+          ));
           if (showImportedAnnotations) {
-            assets.push(subjectAllenOutlineUrl(
+            assets.push(subjectAllenDetailedOutlineUrl(
               activePlane,
               index,
               allenRegistrationState.finishedAt,
@@ -554,16 +908,19 @@ export default function App() {
     previousSlicePosition.current = currentPosition;
   }, [
     activePlane,
+    activeModality,
     activeSliceCount,
     allenRegistrationState.finishedAt,
     connectivityState.finishedAt,
     connectivityState.hasNativeViewerAssets,
     connectivityState.viewerManifest,
     connectivityVisible,
+    detailedAnnotations,
     injectionVisible,
     projectionVisible,
     registrationState.finishedAt,
     showImportedAnnotations,
+    showBrainOnly,
     showImportedMask,
     slice3DMode,
     sliceAnnotationsEnabled,
@@ -592,6 +949,91 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  const refreshModalities = useCallback(async () => {
+    const response = await fetch("/api/modalities/status", { cache: "no-store" });
+    const nextState = await readModalityResponse(response);
+    if (!response.ok) throw new Error(nextState.message);
+    setModalityState(nextState);
+  }, []);
+
+  useEffect(() => {
+    if (!registrationState.hasViewerAssets) {
+      setModalityState(INITIAL_MODALITY_STATE);
+      return;
+    }
+    void refreshModalities().catch(() => undefined);
+  }, [refreshModalities, registrationState.finishedAt, registrationState.hasViewerAssets]);
+
+  useEffect(() => {
+    if (
+      activeModalityId !== null
+      && !modalityState.modalities.some((modality) => modality.id === activeModalityId)
+    ) {
+      setActiveModalityId(null);
+    }
+  }, [activeModalityId, modalityState.modalities]);
+
+  useEffect(() => {
+    if (!activeModality) return;
+    setModalityMin(activeModality.percentiles[0]);
+    setModalityMax(activeModality.percentiles[1]);
+    setModalityPalette("gray");
+    setModalityInverted(false);
+  }, [activeModality]);
+
+  useEffect(() => {
+    if (!activeModality || activeModalitySliceKey === null) return;
+    let cancelled = false;
+    void loadModalitySlice(activeModality.id, activePlane, sliceIndexesBySource.subject[activePlane])
+      .then((data) => {
+        if (!cancelled) setLoadedModalitySlice({ key: activeModalitySliceKey, data });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeModality, activeModalitySliceKey, activePlane, sliceIndexesBySource.subject]);
+
+  useEffect(() => {
+    if (viewerSource !== "subject" || modalityState.modalities.length === 0) return;
+    const index = sliceIndexesBySource.subject[activePlane];
+    for (const modality of modalityState.modalities) {
+      void loadModalitySlice(modality.id, activePlane, index).catch(() => undefined);
+    }
+  }, [activePlane, modalityState.modalities, sliceIndexesBySource.subject, viewerSource]);
+
+  useEffect(() => {
+    if (viewerSource !== "subject" || !activeModality || measuredRegionId === null) {
+      setRegionStatisticsPending(false);
+      setRegionStatistics(null);
+      setRegionStatisticsError(null);
+      return;
+    }
+    const controller = new AbortController();
+    setRegionStatisticsPending(true);
+    setRegionStatistics(null);
+    setRegionStatisticsError(null);
+    void fetch(
+      `/api/modalities/${encodeURIComponent(activeModality.id)}/statistics/${measuredRegionId}`,
+      { signal: controller.signal },
+    )
+      .then(async (response) => {
+        const payload = await response.json() as RegionStatistics & { message?: string };
+        if (!response.ok) throw new Error(payload.message ?? "Calcul impossible");
+        setRegionStatistics(payload);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setRegionStatisticsError(
+          error instanceof Error ? error.message : "Le calcul des statistiques a échoué",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setRegionStatisticsPending(false);
+      });
+    return () => controller.abort();
+  }, [activeModality, measuredRegionId, viewerSource]);
 
   useEffect(() => {
     let cancelled = false;
@@ -823,6 +1265,91 @@ export default function App() {
     }
   };
 
+  const importModality = async () => {
+    if (!modalityFile || !modalityName.trim()) return;
+    setModalityState((current) => ({
+      ...current,
+      status: "uploading",
+      message: "Import et validation de la modalité",
+    }));
+    try {
+      const response = await fetch("/api/modalities/import", {
+        method: "POST",
+        headers: {
+          "X-File-Name": encodeURIComponent(modalityFile.name),
+          "X-Modality-Name": encodeURIComponent(modalityName.trim()),
+        },
+        body: modalityFile,
+      });
+      const nextState = await readModalityResponse(response);
+      setModalityState(nextState);
+      if (!response.ok) throw new Error(nextState.message);
+      setModalityFile(null);
+      setModalityName("");
+      setActiveModalityId(null);
+    } catch (error) {
+      setModalityState((current) => ({
+        ...current,
+        status: "failed",
+        message: error instanceof Error ? error.message : "L'import de la modalité a échoué",
+      }));
+    }
+  };
+
+  const deleteModality = async (id: string) => {
+    try {
+      const response = await fetch(`/api/modalities/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const nextState = await readModalityResponse(response);
+      setModalityState(nextState);
+      if (!response.ok) throw new Error(nextState.message);
+    } catch (error) {
+      setModalityState((current) => ({
+        ...current,
+        status: "failed",
+        message: error instanceof Error ? error.message : "La suppression a échoué",
+      }));
+    }
+  };
+
+  const openRegionExport = () => {
+    setRegionExportIds(new Set(measuredRegionId === null ? [] : [measuredRegionId]));
+    setRegionExportSearch("");
+    setRegionExportError(null);
+    setRegionExportOpen(true);
+  };
+
+  const exportRegionValues = async () => {
+    if (!activeModality || regionExportIds.size === 0) return;
+    setRegionExportPending(true);
+    setRegionExportError(null);
+    try {
+      const response = await fetch(
+        `/api/modalities/${encodeURIComponent(activeModality.id)}/export-values`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ regionIds: [...regionExportIds] }),
+        },
+      );
+      if (!response.ok) {
+        const payload = await response.json() as { message?: string };
+        throw new Error(payload.message ?? "Export impossible");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `gamebrain-${activeModality.name.replace(/[^a-zA-Z0-9_-]+/g, "-") || "modalite"}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setRegionExportOpen(false);
+    } catch (error) {
+      setRegionExportError(error instanceof Error ? error.message : "L'export a échoué");
+    } finally {
+      setRegionExportPending(false);
+    }
+  };
+
   const startConnectivity = async (
     requestedExperimentId?: number | string,
     requestedMetadata?: ConnectivitySearchResult,
@@ -930,6 +1457,10 @@ export default function App() {
       }
       setRegistrationState(nextState);
       setAllenRegistrationState(INITIAL_ALLEN_REGISTRATION_STATE);
+      setModalityState(INITIAL_MODALITY_STATE);
+      setModalityFile(null);
+      setModalityName("");
+      setActiveModalityId(null);
       setRegistrationFile(null);
       setViewerSource("allen");
       setSlice3DMode("none");
@@ -964,6 +1495,9 @@ export default function App() {
       setRegistrationState(INITIAL_REGISTRATION_STATE);
       setAllenRegistrationState(INITIAL_ALLEN_REGISTRATION_STATE);
       setConnectivityState(INITIAL_CONNECTIVITY_STATE);
+      setModalityState(INITIAL_MODALITY_STATE);
+      setModalityFile(null);
+      setModalityName("");
       setRegistrationFile(null);
       setConnectivityExperimentId("100140756");
       setConnectivitySearchStatus("idle");
@@ -1063,6 +1597,17 @@ export default function App() {
                   {subjectAnnotationsAvailable ? "Gérer le recalage Allen" : "Recaler avec Allen"}
                 </button>
                 <button
+                  type="button"
+                  onClick={(event) => {
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                    setModalitiesOpen(true);
+                  }}
+                >
+                  Modalités{modalityState.modalities.length > 0
+                    ? ` (${modalityState.modalities.length})`
+                    : ""}
+                </button>
+                <button
                   className="is-danger"
                   type="button"
                   disabled={
@@ -1080,6 +1625,15 @@ export default function App() {
                 </button>
               </div>
             </details>
+          )}
+          {viewerSource === "subject" && activeModality && subjectAnnotationsAvailable && (
+            <button
+              className="global-reset-button"
+              type="button"
+              onClick={openRegionExport}
+            >
+              Exporter les valeurs
+            </button>
           )}
           <button
             className={`global-reset-button${connectivityVisible ? " is-active" : ""}`}
@@ -1295,6 +1849,213 @@ export default function App() {
                   : allenRegistrationState.status === "completed"
                     ? "Préparer les régions"
                     : "Lancer le recalage"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+      {modalitiesOpen && (
+        <div className="registration-overlay" role="presentation">
+          <section
+            aria-labelledby="modalities-title"
+            aria-modal="true"
+            className="registration-dialog modalities-dialog"
+            role="dialog"
+          >
+            <header className="registration-dialog-header">
+              <div>
+                <p className="panel-kicker">Données complémentaires</p>
+                <h2 id="modalities-title">Modalités</h2>
+              </div>
+              <button
+                aria-label="Fermer"
+                className="dialog-close"
+                type="button"
+                onClick={() => setModalitiesOpen(false)}
+              >
+                ×
+              </button>
+            </header>
+            <div className="registration-dialog-body modalities-body">
+              <section className="modality-import-panel">
+                <label className="modality-name-field">
+                  <span>Nom de la modalité</span>
+                  <input
+                    type="text"
+                    maxLength={80}
+                    placeholder="Ex. T2 map, ADC, FA"
+                    value={modalityName}
+                    disabled={modalityState.status === "uploading"}
+                    onChange={(event) => setModalityName(event.currentTarget.value)}
+                  />
+                </label>
+                <label className="registration-file-picker">
+                  <input
+                    type="file"
+                    accept=".nii,.nii.gz,application/gzip"
+                    disabled={modalityState.status === "uploading"}
+                    onClick={(event) => { event.currentTarget.value = ""; }}
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0] ?? null;
+                      setModalityFile(file);
+                      if (file && !modalityName.trim()) {
+                        setModalityName(file.name.replace(/\.nii(?:\.gz)?$/i, ""));
+                      }
+                    }}
+                  />
+                  <span>{modalityFile ? "Changer de fichier" : "Choisir un fichier"}</span>
+                  <small>{modalityFile?.name ?? ".nii ou .nii.gz"}</small>
+                </label>
+                <button
+                  type="button"
+                  className="modality-import-button"
+                  disabled={!modalityFile || !modalityName.trim() || modalityState.status === "uploading"}
+                  onClick={() => void importModality()}
+                >
+                  {modalityState.status === "uploading" ? "Validation en cours" : "Importer"}
+                </button>
+              </section>
+              {modalityState.status === "uploading" && (
+                <div className="registration-progress" aria-label="Import en cours"><span /></div>
+              )}
+              <p
+                className={`registration-message${modalityState.status === "failed" ? " is-error" : ""}`}
+                aria-live="polite"
+              >
+                {modalityState.message}
+              </p>
+              <div className="modality-list">
+                {modalityState.modalities.map((modality) => (
+                  <article className="modality-row" key={modality.id}>
+                    <div className="modality-row-heading">
+                      <div>
+                        <strong>{modality.name}</strong>
+                        <span>{modality.sourceFile}</span>
+                      </div>
+                      <span className={`modality-geometry is-${modality.geometryStatus}`}>
+                        {modality.geometryStatus === "compatible"
+                          ? "Grille compatible"
+                          : "Rééchantillonnée"}
+                      </span>
+                    </div>
+                    <dl>
+                      <div><dt>Dimensions</dt><dd>{modality.shape.join(" × ")}</dd></div>
+                      <div>
+                        <dt>Espacement</dt>
+                        <dd>{modality.spacingMm.map((value) => value.toFixed(3)).join(" × ")} mm</dd>
+                      </div>
+                      <div>
+                        <dt>Valeurs</dt>
+                        <dd>{modality.valueRange.map((value) => value.toPrecision(4)).join(" – ")}</dd>
+                      </div>
+                    </dl>
+                    <button
+                      type="button"
+                      className="modality-delete"
+                      onClick={() => {
+                        if (window.confirm(`Supprimer la modalité « ${modality.name} » ?`)) {
+                          void deleteModality(modality.id);
+                        }
+                      }}
+                    >
+                      Supprimer
+                    </button>
+                  </article>
+                ))}
+                {modalityState.modalities.length === 0 && (
+                  <p className="modality-empty">Aucune modalité importée</p>
+                )}
+              </div>
+            </div>
+            <footer className="registration-dialog-actions">
+              <button type="button" onClick={() => setModalitiesOpen(false)}>Fermer</button>
+            </footer>
+          </section>
+        </div>
+      )}
+      {regionExportOpen && (
+        <div className="registration-overlay" role="presentation">
+          <section
+            aria-labelledby="region-export-title"
+            aria-modal="true"
+            className="registration-dialog region-export-dialog"
+            role="dialog"
+          >
+            <header className="registration-dialog-header">
+              <div>
+                <p className="panel-kicker">Données quantitatives</p>
+                <h2 id="region-export-title">Exporter les valeurs</h2>
+              </div>
+              <button
+                aria-label="Fermer"
+                className="dialog-close"
+                type="button"
+                onClick={() => setRegionExportOpen(false)}
+              >
+                ×
+              </button>
+            </header>
+            <div className="registration-dialog-body region-export-body">
+              <div className="region-export-toolbar">
+                <label>
+                  <span className="visually-hidden">Rechercher une région</span>
+                  <input
+                    type="search"
+                    placeholder="Nom, acronyme ou identifiant"
+                    value={regionExportSearch}
+                    onChange={(event) => setRegionExportSearch(event.currentTarget.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setRegionExportIds(new Set(exportableRegions.map((region) => region.id)))}
+                >
+                  Tout sélectionner
+                </button>
+                <button type="button" onClick={() => setRegionExportIds(new Set())}>
+                  Aucun
+                </button>
+              </div>
+              <div className="region-export-count">
+                <strong>{regionExportIds.size}</strong> région{regionExportIds.size > 1 ? "s" : ""} sélectionnée{regionExportIds.size > 1 ? "s" : ""}
+                <span>Modalité : {activeModality?.name ?? "indisponible"}</span>
+              </div>
+              <div className="region-export-list">
+                {filteredExportRegions.map((structure) => (
+                  <label key={structure.id}>
+                    <input
+                      type="checkbox"
+                      checked={regionExportIds.has(structure.id)}
+                      onChange={() => setRegionExportIds((current) => {
+                        const next = new Set(current);
+                        if (next.has(structure.id)) next.delete(structure.id);
+                        else next.add(structure.id);
+                        return next;
+                      })}
+                    />
+                    <span className="color-swatch" style={{ backgroundColor: structure.color }} />
+                    <strong>{structure.acronym}</strong>
+                    <span>{structure.name}</span>
+                    <small>{structure.id}</small>
+                  </label>
+                ))}
+                {filteredExportRegions.length === 0 && (
+                  <p className="region-search-empty">Aucune région trouvée</p>
+                )}
+              </div>
+              {regionExportError && (
+                <p className="registration-message is-error">{regionExportError}</p>
+              )}
+            </div>
+            <footer className="registration-dialog-actions">
+              <button type="button" onClick={() => setRegionExportOpen(false)}>Annuler</button>
+              <button
+                type="button"
+                className="is-primary"
+                disabled={regionExportIds.size === 0 || regionExportPending}
+                onClick={() => void exportRegionValues()}
+              >
+                {regionExportPending ? "Création du CSV" : "Exporter le CSV"}
               </button>
             </footer>
           </section>
@@ -1606,77 +2367,60 @@ export default function App() {
                 >
                   <div className="region-picker-heading">
                     <span>Régions</span>
-                    <span>{visibleRegionCount}/{REGIONS.length} visibles</span>
+                    <span>
+                      {detailedAnnotations
+                        ? `${detailedAnnotations.structure_count} annotations`
+                        : `${visibleRegionCount}/${REGIONS.length} visibles`}
+                    </span>
                   </div>
                   <label className="region-search">
                     <span className="visually-hidden">Rechercher une région</span>
                     <input
                       type="search"
-                      placeholder="Rechercher une région"
+                      placeholder="Nom, acronyme ou identifiant"
                       value={regionSearch}
                       onChange={(event) => setRegionSearch(event.currentTarget.value)}
                     />
                   </label>
-                  <label className="brain-visibility-row">
-                    <input
-                      type="checkbox"
-                      checked={wholeBrainVisible}
-                      onChange={() => setWholeBrainVisible((current) => !current)}
-                    />
-                    <span className="color-swatch whole-brain-swatch" aria-hidden="true" />
-                    <span>Cerveau complet</span>
-                  </label>
+                  <div className="brain-visibility-row">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={wholeBrainVisible}
+                        onChange={toggleWholeBrain}
+                      />
+                      <span className="color-swatch whole-brain-swatch" aria-hidden="true" />
+                      <span>Cerveau complet</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="region-display-reset"
+                      onClick={resetRegionDisplay}
+                      title="Rétablir toutes les régions"
+                    >
+                      Réinitialiser
+                    </button>
+                  </div>
                   <div className="region-picker-list">
-                    {filteredRegions.map((region) => (
-                      <div
-                        className={`region-picker-item${selectedRegionId === region.id ? " is-selected" : ""}`}
-                        key={region.id}
-                        onFocus={() => hoverRegionFromMenu(region.id)}
-                        onBlur={() =>
-                          setMenuHoveredRegionId((current) =>
-                            current === region.id ? null : current,
-                          )
-                        }
-                        onPointerEnter={() => hoverRegionFromMenu(region.id)}
-                        onPointerLeave={() =>
-                          setMenuHoveredRegionId((current) =>
-                            current === region.id ? null : current,
-                          )
-                        }
-                      >
-                        <input
-                          type="checkbox"
-                          checked={visibility[region.id]}
-                          aria-label={`Afficher ${region.name}`}
-                          onChange={() => toggleRegion(region.id)}
-                        />
-                        <span
-                          className="color-swatch"
-                          style={{ backgroundColor: region.color }}
-                          aria-hidden="true"
-                        />
-                        <button
-                          type="button"
-                          title={`Sélectionner ${region.name}`}
-                          onClick={() => selectRegionFromMenu(region.id)}
-                        >
-                          <span>
-                            <strong>{region.acronym}</strong>
-                            <small>{region.name}</small>
-                          </span>
-                          <span className="region-number">{region.id}</span>
-                        </button>
-                      </div>
-                    ))}
-                    {filteredRegions.length === 0 && (
-                      <p className="region-search-empty">Aucune région trouvée</p>
+                    {detailedAnnotations ? (
+                      <RegionTree
+                        displayedIds={treeDisplayedRegionIds}
+                        onHover={hoverDetailedRegionFromTree}
+                        onSelect={selectDetailedRegionFromTree}
+                        onToggleDisplayed={toggleDisplayedDetailedRegion}
+                        search={regionSearch}
+                        selectedId={selectedDetailedRegionId ?? selectedRegionId}
+                        structures={detailedAnnotations.structures}
+                      />
+                    ) : (
+                      <p className="region-search-empty">Chargement des annotations</p>
                     )}
                   </div>
                 </section>
                 {sliceAnnotationsEnabled && detailRegion && (
                   <div className="region-info-slot">
                     <aside
-                      className={`region-info${viewerSource === "allen" && selectedRegionId === detailRegion.id ? " has-actions" : ""}`}
+                      className={`region-info${selectedDetailedRegionId === detailRegion.id || selectedRegionId === detailRegion.id ? " has-actions" : ""}`}
                       aria-live="polite"
                     >
               <div className="region-info-heading">
@@ -1687,7 +2431,13 @@ export default function App() {
                 />
                 <div>
                   <p className="region-info-label">
-                    {selectedRegionId === detailRegion.id ? "Région sélectionnée" : "Région Allen"}
+                    {selectedDetailedRegionId === detailRegion.id
+                      ? "Annotation sélectionnée"
+                      : selectedRegionId === detailRegion.id
+                        ? "Région sélectionnée"
+                        : activeDetailedRegion
+                          ? "Annotation Allen"
+                          : "Région Allen"}
                   </p>
                   <h2>{detailRegion.name}</h2>
                 </div>
@@ -1708,15 +2458,19 @@ export default function App() {
                 <div>
                   <dt>Parent</dt>
                   <dd>
-                    {detailRegion.parentName} ({detailRegion.parentId})
+                    {detailRegion.parentName
+                      ? `${detailRegion.parentName} (${detailRegion.parentId})`
+                      : "Aucun"}
                   </dd>
                 </div>
               </dl>
-              {viewerSource === "allen" && selectedRegionId === detailRegion.id && (
+              {(selectedDetailedRegionId === detailRegion.id || selectedRegionId === detailRegion.id) && (
                 <div className="region-actions">
-                  <button type="button" onClick={isolateSelectedRegion}>Afficher uniquement</button>
+                  <button type="button" onClick={isolateSelectedRegion}>
+                    {isolationSnapshot ? "Retour" : "Isoler"}
+                  </button>
                   <button type="button" onClick={hideSelectedRegion}>Masquer</button>
-                  <button type="button" onClick={() => selectRegion(null)}>Effacer</button>
+                  <button type="button" onClick={clearSelectedRegion}>Effacer</button>
                 </div>
               )}
                     </aside>
@@ -1725,7 +2479,8 @@ export default function App() {
               </div>
             )}
           </aside>
-          <div className="viewer-stage">
+          <div className={`viewer-content${viewerSource === "subject" && activeModality && measuredRegionId !== null ? " has-measurements" : ""}`}>
+            <div className="viewer-stage">
             <Suspense
               fallback={
                 <div className="scene-loading" role="status">
@@ -1759,6 +2514,15 @@ export default function App() {
                     ? connectivityState.nativeViewerManifest?.injection_marker?.radius_mm
                     : connectivityState.viewerManifest?.injection_marker?.radius_mm) ?? 0.2
                 }
+                connectivityInjectionUrl={
+                  connectivityVisible && injectionVisible
+                    ? viewerSource === "allen" && connectivityState.hasViewerAssets
+                      ? connectivityVolumeUrl("injection", connectivityState.finishedAt)
+                      : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
+                        ? nativeConnectivityVolumeUrl("injection", connectivityState.finishedAt)
+                        : undefined
+                    : undefined
+                }
                 connectivityOpacity={connectivityOpacity}
                 connectivityProjectionUrl={
                   connectivityVisible && projectionVisible
@@ -1771,11 +2535,12 @@ export default function App() {
                 }
                 connectivityThreshold={connectivityThreshold}
                 connectivityVolumeCenter={
-                  viewerSource === "subject" ? [0, 0, 0] : ATLAS_VOLUME_CENTER_MM
+                  viewerSource === "subject" ? SUBJECT_VOLUME_CENTER_MM : ATLAS_VOLUME_CENTER_MM
                 }
                 connectivityVolumeSpacingMm={
                   viewerSource === "subject"
-                    ? connectivityState.nativeViewerManifest?.volume_spacing_mm ?? [0.1, 0.1, 0.1]
+                    ? connectivityState.nativeViewerManifest?.volume_spacing_mm
+                      ?? DEFAULT_SUBJECT_VOLUME_SPACING_MM
                     : (connectivityState.viewerManifest?.volume_resolution_um ?? 100) / 1000
                 }
                 connectivityVolumeShape={
@@ -1783,11 +2548,23 @@ export default function App() {
                     ? connectivityState.nativeViewerManifest?.volume_shape
                     : connectivityState.viewerManifest?.volume_shape
                 }
+                detailedRegion={
+                  (
+                    viewerSource === "allen"
+                      ? activeDetailedRegion?.meshAvailable
+                      : subjectAnnotationsAvailable &&
+                        nativeSceneDetailedRegion !== null &&
+                        allenRegistrationState.nativeRegionIds.includes(nativeSceneDetailedRegion.id)
+                  ) ? (viewerSource === "allen" ? activeDetailedRegion : nativeSceneDetailedRegion) : null
+                }
+                persistentDetailedRegions={scenePersistentDetailedRegions}
                 hoveredRegionId={sceneHoveredRegionId}
                 importedManifest={viewerSource === "subject" ? importedManifest : null}
                 isolatedRegionId={isolatedRegionId}
                 onHoverRegion={hoverRegionFromViewer}
+                onHoverDetailedRegion={hoverMajorRegionFromNativeScene}
                 onSelectRegion={selectRegion}
+                onSelectDetailedRegion={selectMajorRegionFromNativeScene}
                 selectedRegionId={selectedRegionId}
                 source={viewerSource}
                 subjectRevision={registrationState.finishedAt}
@@ -1799,6 +2576,42 @@ export default function App() {
                 wholeBrainVisible={wholeBrainVisible}
               />
             </Suspense>
+            </div>
+            {viewerSource === "subject" && activeModality && measuredRegionId !== null && (
+              <section className="region-measurements-panel" aria-live="polite">
+                <header>
+                  <div>
+                    <p>Mesures régionales</p>
+                    <h2>{regionStatistics?.region_name ?? detailRegion?.name ?? "Région Allen"}</h2>
+                  </div>
+                  <span>{activeModality.name}</span>
+                </header>
+                {regionStatisticsPending && (
+                  <div className="region-measurements-status">Calcul en cours</div>
+                )}
+                {regionStatisticsError && (
+                  <div className="region-measurements-status is-error">{regionStatisticsError}</div>
+                )}
+                {regionStatistics && (
+                  <>
+                    <dl className="region-measurements-grid">
+                      <div><dt>Voxels mesurés</dt><dd>{regionStatistics.valid_voxels}</dd></div>
+                      <div><dt>Volume</dt><dd>{formatMeasurement(regionStatistics.sampled_volume_mm3)} mm³</dd></div>
+                      <div><dt>Moyenne</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.mean) : "n/a"}</dd></div>
+                      <div><dt>Médiane</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.median) : "n/a"}</dd></div>
+                      <div><dt>Écart-type</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.std) : "n/a"}</dd></div>
+                      <div><dt>Minimum</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.min) : "n/a"}</dd></div>
+                      <div><dt>Maximum</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.max) : "n/a"}</dd></div>
+                      <div><dt>Percentile 5</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.p05) : "n/a"}</dd></div>
+                      <div><dt>Percentile 95</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.p95) : "n/a"}</dd></div>
+                    </dl>
+                    <p className="region-measurements-note">
+                      {regionStatistics.excluded_voxels} voxels nuls ou non finis exclus · sous-régions incluses
+                    </p>
+                  </>
+                )}
+              </section>
+            )}
           </div>
         </section>
         <section className="slice-view" aria-label={activeSlice.title}>
@@ -1806,11 +2619,28 @@ export default function App() {
             <div>
               <p className="panel-kicker">
                 {viewerSource === "subject"
-                  ? `Image importée · espace natif · ${Math.round(activeSliceSpacingMm * 1000)} µm`
+                  ? `${activeModality?.name ?? "Image importée"} · espace natif · ${Math.round(activeSliceSpacingMm * 1000)} µm`
                   : "Reference et annotations"}
               </p>
               <h2>{activeSlice.title}</h2>
             </div>
+            {viewerSource === "subject" && modalityState.modalities.length > 0 && (
+              <label className="slice-volume-selector">
+                <span>Volume</span>
+                <select
+                  value={activeModalityId ?? "rare"}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setActiveModalityId(value === "rare" ? null : value);
+                  }}
+                >
+                  <option value="rare">RARE</option>
+                  {modalityState.modalities.map((modality) => (
+                    <option value={modality.id} key={modality.id}>{modality.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div className="slice-position">
               <span className="slice-index">
                 Index {sliceIndex} / {activeSliceCount - 1}
@@ -1829,8 +2659,14 @@ export default function App() {
             connectivityThreshold={connectivityThreshold}
             connectivityVisible={connectivityVisible}
             injectionVisible={injectionVisible}
+            modalityControlsVisible={activeModality !== null}
+            modalityInverted={modalityInverted}
+            modalityMax={modalityMax}
+            modalityMin={modalityMin}
+            modalityPalette={modalityPalette}
             projectionVisible={projectionVisible}
             showAllenRegionColors={showAllenRegionColors}
+            showBrainOnly={showBrainOnly}
             showImportedAnnotations={showImportedAnnotations}
             showImportedMask={showImportedMask}
             sliceResolution={sliceResolution}
@@ -1841,10 +2677,23 @@ export default function App() {
             onConnectivityThresholdChange={setConnectivityThreshold}
             onConnectivityVisibleChange={setConnectivityVisible}
             onInjectionVisibleChange={setInjectionVisible}
+            onModalityInvertedChange={setModalityInverted}
+            onModalityMaxChange={setModalityMax}
+            onModalityMinChange={setModalityMin}
+            onModalityPaletteChange={setModalityPalette}
+            onModalitySettingsReset={() => {
+              if (activeModality) {
+                setModalityMin(activeModality.percentiles[0]);
+                setModalityMax(activeModality.percentiles[1]);
+              }
+              setModalityPalette("gray");
+              setModalityInverted(false);
+            }}
             onPlaneChange={changeActivePlane}
             onProjectionVisibleChange={setProjectionVisible}
             onResolutionChange={changeSliceResolution}
             onShowAllenRegionColorsChange={setShowAllenRegionColors}
+            onShowBrainOnlyChange={setShowBrainOnly}
             onShowImportedAnnotationsChange={setShowImportedAnnotations}
             onShowImportedMaskChange={setShowImportedMask}
           />
@@ -1854,9 +2703,11 @@ export default function App() {
           >
             <InteractiveSlice
               annotationOutlineSrc={
-                viewerSource === "subject" && subjectAnnotationsAvailable && showImportedAnnotations
-                  ? subjectAllenOutlineUrl(activePlane, sliceIndex, allenRegistrationState.finishedAt)
-                  : undefined
+                viewerSource === "allen" && sliceResolution === 25 && showAllenRegionColors
+                  ? detailedAnnotationOutlineUrl(activePlane, sliceIndex)
+                  : viewerSource === "subject" && subjectAnnotationsAvailable && showImportedAnnotations
+                    ? subjectAllenDetailedOutlineUrl(activePlane, sliceIndex, allenRegistrationState.finishedAt)
+                    : undefined
               }
               annotationsEnabled={sliceAnnotationsEnabled}
               connectivityInspectionEnabled={viewerSource === "allen" && connectivityVisible}
@@ -1894,14 +2745,38 @@ export default function App() {
               }
               connectivityOpacity={connectivityOpacity}
               connectivityThreshold={connectivityThreshold}
+              detailedHighlight={activeDetailedRegion
+                ? {
+                    color: activeDetailedRegion.color,
+                    maskValue: activeDetailedRegion.maskValue,
+                  }
+                : null}
+              detailedMaskSrc={
+                viewerSource === "allen" && sliceResolution === 25 && detailedAnnotations
+                  ? detailedAnnotationMaskUrl(activePlane, sliceIndex)
+                  : viewerSource === "subject" && subjectAnnotationsAvailable && detailedAnnotations
+                    ? subjectAllenDetailedMaskUrl(activePlane, sliceIndex, allenRegistrationState.finishedAt)
+                  : undefined
+              }
+              detailedMaskValueToRegionId={detailedMaskValueToRegionId}
               hoveredRegionId={
                 viewerSource === "allen" && !showAllenRegionColors ? null : activeRegionId
               }
               imageSrc={
                 viewerSource === "subject"
-                  ? subjectSliceUrl(activePlane, sliceIndex, registrationState.finishedAt)
+                  ? activeModality
+                    ? modalitySliceUrl(activeModality.id, activePlane, sliceIndex, showBrainOnly)
+                    : showBrainOnly
+                      ? subjectSlice3DUrl(activePlane, sliceIndex, registrationState.finishedAt)
+                      : subjectSliceUrl(activePlane, sliceIndex, registrationState.finishedAt)
                   : undefined
               }
+              modalityBrainOnly={showBrainOnly}
+              modalityInverted={modalityInverted}
+              modalityPalette={modalityPalette}
+              modalityVisible={activeModalitySlice !== null}
+              modalitySliceData={activeModalitySlice}
+              modalityWindow={modalityWindow}
               index={sliceIndex}
               maskOutlineSrc={
                 viewerSource === "subject" && showImportedMask
@@ -1914,9 +2789,11 @@ export default function App() {
                   : undefined
               }
               onHoverRegion={hoverRegionFromViewer}
+              onHoverDetailedRegion={hoverDetailedRegion}
               onConnectivityInspect={inspectConnectivity}
               onConnectivityPin={pinConnectivityInspection}
               onSelectRegion={selectRegion}
+              onSelectDetailedRegion={selectDetailedRegion}
               plane={activePlane}
               regionColorsVisible={viewerSource !== "allen" || showAllenRegionColors}
               resolution={sliceResolution}

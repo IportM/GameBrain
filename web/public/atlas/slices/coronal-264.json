@@ -1,0 +1,12 @@
+{
+  "plane": "coronal",
+  "index": 264,
+  "axis_size": 528,
+  "coordinate_um": 6600,
+  "resolution_um": 25,
+  "orientation": "asr",
+  "image_shape": [
+    320,
+    456
+  ]
+}

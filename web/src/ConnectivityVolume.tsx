@@ -21,6 +21,7 @@ type ConnectivityVolumeProps = {
   highColor: string;
   lowColor: string;
   opacity: number;
+  renderOrder?: number;
   spacingMm: number | [number, number, number];
   shape: [number, number, number];
   threshold: number;
@@ -34,6 +35,7 @@ export default function ConnectivityVolume({
   highColor,
   lowColor,
   opacity,
+  renderOrder = 10,
   spacingMm,
   shape,
   threshold,
@@ -183,7 +185,7 @@ export default function ConnectivityVolume({
 
   if (!texture) return null;
   return (
-    <mesh position={center} material={material} renderOrder={10}>
+    <mesh position={center} material={material} renderOrder={renderOrder}>
       <boxGeometry args={[size.x, size.y, size.z]} />
     </mesh>
   );

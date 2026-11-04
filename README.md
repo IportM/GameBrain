@@ -3,16 +3,43 @@
 Visualiseur web de l'Allen Mouse Brain Atlas avec une vue 3D interactive et des
 coupes coronales, sagittales et axiales en 10, 25 et 50 um.
 
-## Lancer l'application
+## Cloner et lancer l'application
 
-Depuis le dossier `web` :
+Prérequis : Node.js 20 ou plus récent. Après avoir cloné le dépôt :
 
 ```powershell
-npm install
-npm run dev
+cd GameBrain\web
+corepack enable
+pnpm install
+pnpm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-Vite affiche ensuite l'adresse locale à ouvrir dans le navigateur.
+Ouvrir ensuite `http://127.0.0.1:5173/` dans le navigateur.
+
+Les coupes Allen, les annotations et les maillages 3D nécessaires à la
+visualisation sont inclus dans le dépôt.
+
+## Fonctions scientifiques locales
+
+L'import NIfTI, l'extraction cérébrale, le recalage Allen, les modalités et les
+exports régionaux utilisent Python. Depuis la racine du dépôt :
+
+```powershell
+py -3.11 -m venv .venv-registration
+.\.venv-registration\Scripts\python.exe -m pip install --upgrade pip
+.\.venv-registration\Scripts\python.exe -m pip install -r .\registration\requirements.txt
+```
+
+Pour extraire automatiquement un cerveau depuis une image contenant encore le
+crâne, installer également :
+
+```powershell
+.\.venv-registration\Scripts\python.exe -m pip install -r .\registration\requirements-extraction.txt
+```
+
+Les gabarits Allen et les modèles d'extraction utilisés par l'application sont
+présents dans `registration/resources`. Le téléchargement des expériences de
+connectivité nécessite une connexion à l'API Allen.
 
 ## Sécurité
 
@@ -28,15 +55,17 @@ NIfTI, modèles, environnements, caches et résultats locaux sont exclus de Git.
 
 ## Données locales
 
-Les volumes Allen sources, les environnements Python et les exports web sont
-volumineux et ne sont pas versionnés. L'application attend les ressources
-générées dans :
+Les données personnelles et les résultats de calcul ne sont jamais versionnés :
 
-- `web/public/atlas/regions` pour les maillages 3D ;
-- `web/public/atlas/slices/<resolution>` pour les images et masques 2D.
+- `registration/imports` : images NIfTI importées et recalages ;
+- `registration/connectivity` : expériences téléchargées et projections natives ;
+- `data-source` : volumes sources servant à régénérer les ressources Allen ;
+- `.venv-registration` et `.venv-brainglobe` : environnements Python locaux.
 
-Les scripts `export_web_mesh.py` et `export_web_slice.py` servent à reconstruire
-ces ressources depuis les données locales de l'atlas.
+Ces emplacements restent exclus par `.gitignore`. Les scripts
+`export_web_mesh.py`, `export_web_slice.py`, `export_detailed_annotations.py` et
+`export_detailed_meshes.py` permettent de reconstruire les ressources web à
+partir d'une copie locale de l'atlas.
 
 ## Organisation
 

@@ -882,6 +882,17 @@ When a native import is active, the top bar exposes `Supprimer l'image`. This de
 
 ## Important Caveats
 
+## Planned Scientific Extensions
+
+### Regional modality measurements
+
+The first regional-measurement milestone is implemented for imported 3D modalities. In native-image mode, selecting an Allen structure while a modality is active automatically displays its measurements below the 3D scene. The server verifies that the prepared modality and native Allen labels share the same NIfTI grid, includes every descendant of the selected ontology node, excludes zero and non-finite samples, and reports voxel coverage, physical sampled volume, mean, standard deviation, median, minimum, maximum, P5, and P95. A separate `Exporter les valeurs` dialog preselects the active structure, supports searching, selecting several or every available native region, and downloads a UTF-8 semicolon-delimited CSV. Batch export loads the modality and label volumes once and adds P25/P75 for future distribution graphs. Graphs and multi-modality exports remain deferred.
+
+- Extend the web viewer from the 12 major Allen groups to the detailed Allen ontology. The first milestone targets exact 2D identification at 25 um; detailed meshes will be loaded on demand later.
+- After a RARE image has been registered to Allen space, allow additional modalities from the same subject/session to be imported into that spatial reference.
+- Extract regional measurements from selected Allen structures in 3D quantitative volumes and, later, in 4D acquisitions such as MESE series.
+- Keep registration quality control, richer connectivity analysis, session export, and processing robustness in the roadmap after detailed annotations.
+
 - If data from different sources are used, they must be registered/aligned to the same atlas space.
 - Downsampling intensity images is not the same as downsampling labels.
 - For label/segmentation volumes, use nearest-neighbor or majority voting, not bilinear interpolation.

@@ -10,6 +10,7 @@ import {
   type SliceResolution,
 } from "./atlas";
 import type { ConnectivityState } from "./data";
+import type { ModalityPalette } from "./modalityVolume";
 
 type SliceToolbarProps = {
   activePlane: SlicePlane;
@@ -20,8 +21,14 @@ type SliceToolbarProps = {
   connectivityThreshold: number;
   connectivityVisible: boolean;
   injectionVisible: boolean;
+  modalityControlsVisible: boolean;
+  modalityInverted: boolean;
+  modalityMax: number;
+  modalityMin: number;
+  modalityPalette: ModalityPalette;
   projectionVisible: boolean;
   showAllenRegionColors: boolean;
+  showBrainOnly: boolean;
   showImportedAnnotations: boolean;
   showImportedMask: boolean;
   sliceResolution: SliceResolution;
@@ -32,10 +39,16 @@ type SliceToolbarProps = {
   onConnectivityThresholdChange: (value: number) => void;
   onConnectivityVisibleChange: (visible: boolean) => void;
   onInjectionVisibleChange: (visible: boolean) => void;
+  onModalityInvertedChange: (value: boolean) => void;
+  onModalityMaxChange: (value: number) => void;
+  onModalityMinChange: (value: number) => void;
+  onModalityPaletteChange: (value: ModalityPalette) => void;
+  onModalitySettingsReset: () => void;
   onPlaneChange: (plane: SlicePlane) => void;
   onProjectionVisibleChange: (visible: boolean) => void;
   onResolutionChange: (resolution: SliceResolution) => void;
   onShowAllenRegionColorsChange: (visible: boolean) => void;
+  onShowBrainOnlyChange: (visible: boolean) => void;
   onShowImportedAnnotationsChange: (visible: boolean) => void;
   onShowImportedMaskChange: (visible: boolean) => void;
 };
@@ -49,8 +62,14 @@ function SliceToolbarComponent({
   connectivityThreshold,
   connectivityVisible,
   injectionVisible,
+  modalityControlsVisible,
+  modalityInverted,
+  modalityMax,
+  modalityMin,
+  modalityPalette,
   projectionVisible,
   showAllenRegionColors,
+  showBrainOnly,
   showImportedAnnotations,
   showImportedMask,
   sliceResolution,
@@ -61,10 +80,16 @@ function SliceToolbarComponent({
   onConnectivityThresholdChange,
   onConnectivityVisibleChange,
   onInjectionVisibleChange,
+  onModalityInvertedChange,
+  onModalityMaxChange,
+  onModalityMinChange,
+  onModalityPaletteChange,
+  onModalitySettingsReset,
   onPlaneChange,
   onProjectionVisibleChange,
   onResolutionChange,
   onShowAllenRegionColorsChange,
+  onShowBrainOnlyChange,
   onShowImportedAnnotationsChange,
   onShowImportedMaskChange,
 }: SliceToolbarProps) {
@@ -113,6 +138,15 @@ function SliceToolbarComponent({
           </>
         ) : (
           <div className="slice-layer-controls" aria-label="Superpositions de la coupe">
+            <label>
+              <input
+                type="checkbox"
+                checked={showBrainOnly}
+                onChange={(event) => onShowBrainOnlyChange(event.currentTarget.checked)}
+              />
+              <span className="layer-color is-brain" aria-hidden="true" />
+              <span>Cerveau seul</span>
+            </label>
             {subjectAnnotationsAvailable && (
               <label>
                 <input
@@ -211,6 +245,49 @@ function SliceToolbarComponent({
               />
             </label>
           </div>
+        </div>
+      )}
+      {modalityControlsVisible && (
+        <div className="modality-control-strip" aria-label="Réglages visuels de la modalité">
+          <label className="modality-number-control">
+            <span>Min</span>
+            <input
+              type="number"
+              value={Number(modalityMin.toPrecision(6))}
+              onChange={(event) => onModalityMinChange(Number(event.currentTarget.value))}
+            />
+          </label>
+          <label className="modality-number-control">
+            <span>Max</span>
+            <input
+              type="number"
+              value={Number(modalityMax.toPrecision(6))}
+              onChange={(event) => onModalityMaxChange(Number(event.currentTarget.value))}
+            />
+          </label>
+          <label className="modality-palette-control">
+            <span>Palette</span>
+            <select
+              value={modalityPalette}
+              onChange={(event) => onModalityPaletteChange(event.currentTarget.value as ModalityPalette)}
+            >
+              <option value="gray">Gris</option>
+              <option value="viridis">Viridis</option>
+              <option value="magma">Magma</option>
+              <option value="hot">Chaud</option>
+            </select>
+          </label>
+          <label className="modality-invert-toggle">
+            <input
+              type="checkbox"
+              checked={modalityInverted}
+              onChange={(event) => onModalityInvertedChange(event.currentTarget.checked)}
+            />
+            Inverser
+          </label>
+          <button type="button" className="modality-settings-reset" onClick={onModalitySettingsReset}>
+            Réinitialiser
+          </button>
         </div>
       )}
       <div className="slice-tabs" role="tablist" aria-label="Orientation de coupe">

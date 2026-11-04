@@ -1,0 +1,34 @@
+{
+  "plane": "axial",
+  "axis": 1,
+  "count": 320,
+  "first_index": 0,
+  "last_index": 319,
+  "default_index": 160,
+  "resolution_um": 25,
+  "orientation": "asr",
+  "image_shape": [
+    528,
+    456
+  ],
+  "image_pattern": "axial-{index:03d}.webp",
+  "mask_pattern": "masks/axial-{index:03d}.png",
+  "mask_values": {
+    "1": 315,
+    "2": 1089,
+    "3": 512,
+    "4": 703,
+    "5": 698,
+    "6": 477,
+    "7": 803,
+    "8": 549,
+    "9": 1097,
+    "10": 313,
+    "11": 771,
+    "12": 354
+  },
+  "normalization_percentiles": [
+    1,
+    99.5
+  ]
+}

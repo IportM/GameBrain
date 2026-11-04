@@ -20,10 +20,7 @@ __pycache__/
 web/node_modules/
 web/dist/
 web/*.tsbuildinfo
-web/public/atlas/slices/
-web/public/atlas/regions/
 Recallage_Allen.zip
-registration/resources/
 registration/results/
 registration/uploads/
 registration/imports/
