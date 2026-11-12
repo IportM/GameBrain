@@ -69,6 +69,8 @@ import {
 } from "./modalityVolume";
 import RegionTree from "./RegionTree";
 import Workspace from "./Workspace";
+import { ImageWorkflow, WorkflowStatus, type ImageTask } from "./ImageWorkflow";
+import { useDialogFocus } from "./useDialogFocus";
 import { ChevronLeft, ChevronRight, Focus, LockKeyhole, MousePointer2, RotateCcw, X } from "lucide-react";
 import {
   detailedAnnotationMaskUrl,
@@ -878,6 +880,36 @@ export default function App() {
     setConnectivityOpen(false);
   };
 
+  const openImageTask = (task: ImageTask) => {
+    setRegistrationOpen(task === "image");
+    setAllenRegistrationOpen(task === "atlas");
+    setModalitiesOpen(task === "modalities");
+    setConnectivityOpen(task === "connectivity");
+  };
+
+  const imageWorkBusy = registrationPending || registrationState.status === "uploading"
+    || registrationState.status === "running" || allenRegistrationState.status === "running"
+    || modalityState.status === "uploading" || connectivityState.nativeStatus === "running";
+  const imageWorkflow = (active: ImageTask) => <ImageWorkflow
+    active={active} hasImage={registrationState.hasViewerAssets} hasRegions={subjectAnnotationsAvailable}
+    hasExperiment={connectivityState.hasViewerAssets}
+    modalityCount={modalityState.modalities.length} nativeConnectivity={connectivityState.hasNativeViewerAssets}
+    importStatus={registrationState.status} atlasStatus={allenRegistrationState.status}
+    modalityStatus={modalityState.status} nativeStatus={connectivityState.nativeStatus}
+    busy={imageWorkBusy || registrationFile !== null} onNavigate={openImageTask}
+  />;
+
+  const closeTaskDialogs = useCallback(() => {
+    setRegistrationOpen(false);
+    setAllenRegistrationOpen(false);
+    setModalitiesOpen(false);
+    setConnectivityOpen(false);
+    setRegionExportOpen(false);
+  }, []);
+  useDialogFocus(registrationOpen ? "registration-title" : allenRegistrationOpen ? "allen-registration-title"
+    : modalitiesOpen ? "modalities-title" : connectivityOpen ? "connectivity-title"
+      : regionExportOpen ? "region-export-title" : null, closeTaskDialogs);
+
   const changeSliceResolution = useCallback((nextResolution: SliceResolution) => {
     if (viewerSource === "subject") {
       return;
@@ -1232,6 +1264,7 @@ export default function App() {
       return;
     }
     activatedSubjectRevision.current = revision;
+    setRegistrationFile(null);
     if (!registrationState.viewerManifest) {
       return;
     }
@@ -1752,7 +1785,7 @@ export default function App() {
               type="button"
               onClick={() => setRegistrationOpen(true)}
             >
-              Importer une image
+              {registrationState.status === "uploading" || registrationState.status === "running" ? "Import en cours" : "Importer une image"}
             </button>
           ) : (
             <details className="image-menu" ref={imageMenuRef}>
@@ -1775,27 +1808,26 @@ export default function App() {
                   </span>
                 </div>
                 <button
-                  aria-label="Changer l'image importée"
+                  aria-label="Gérer l'image et son import"
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
                     setRegistrationOpen(true);
                   }}
                 >
-                  Changer d’image
+                  Image et import
                 </button>
                 <button
-                  aria-label={subjectAnnotationsAvailable
+                  aria-label={allenRegistrationState.status === "running" ? "Suivre le recalage Allen" : subjectAnnotationsAvailable
                     ? "Gérer le recalage Allen de l'image importée"
                     : "Recaler l'image importée avec Allen"}
                   type="button"
-                  disabled={allenRegistrationState.status === "running"}
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
                     setAllenRegistrationOpen(true);
                   }}
                 >
-                  {subjectAnnotationsAvailable ? "Gérer le recalage Allen" : "Recaler avec Allen"}
+                  {allenRegistrationState.status === "running" ? "Suivre le recalage" : subjectAnnotationsAvailable ? "Régions Allen disponibles" : "Calculer les régions Allen"}
                 </button>
                 <button
                   aria-label="Gérer les modalités complémentaires"
@@ -1883,29 +1915,20 @@ export default function App() {
               </button>
             </header>
             <div className="registration-dialog-body">
+              {imageWorkflow("image")}
               <div className="registration-dataset">
                 <div>
                   <strong>
                     {registrationFile?.name ?? registrationState.fileName ?? "Aucune image sélectionnée"}
                   </strong>
-                  <span>Volume NIfTI 3D affiché dans son espace natif</span>
+                  <span>{registrationFile ? `${(registrationFile.size / 1024 / 1024).toFixed(1)} Mo · NIfTI 3D` : "Image de référence · espace natif"}</span>
                 </div>
-                <span className={`registration-status is-${registrationState.status}`}>
-                  {registrationState.status === "idle"
-                    ? "Prêt"
-                    : registrationState.status === "uploading"
-                      ? "Import"
-                    : registrationState.status === "running"
-                      ? "En cours"
-                      : registrationState.status === "completed"
-                        ? "Terminé"
-                        : "Échec"}
-                </span>
               </div>
 
               <label className="registration-file-picker">
                 <input
                   type="file"
+                  aria-label="Image NIfTI à importer"
                   accept=".nii,.nii.gz,application/gzip"
                   disabled={registrationState.status === "uploading" || registrationState.status === "running"}
                   onClick={(event) => {
@@ -1918,34 +1941,27 @@ export default function App() {
                       ...current,
                       status: file ? "idle" : current.status,
                       message: file ? "Image prête pour l'import" : current.message,
-                      fileName: file?.name ?? current.fileName,
-                      hasViewerAssets: file ? false : current.hasViewerAssets,
-                      viewerManifest: file ? null : current.viewerManifest,
                     }));
                   }}
                 />
                 <span>{registrationFile ? "Changer d'image" : "Choisir une image"}</span>
                 <small>.nii ou .nii.gz</small>
               </label>
-
-              {(registrationState.status === "uploading" || registrationState.status === "running") && (
-                <div className="registration-progress" aria-label="Import en cours">
-                  <span />
-                </div>
+              {registrationFile && registrationState.hasViewerAssets && !imageWorkBusy && (
+                <button type="button" className="workflow-text-action" onClick={() => {
+                  setRegistrationFile(null);
+                  setRegistrationState((current) => ({ ...current, status: "completed", message: "Image disponible" }));
+                }}>Conserver l'image actuelle</button>
               )}
-
-              <p
-                className={`registration-message${registrationState.status === "failed" ? " is-error" : ""}`}
-                aria-live="polite"
-              >
-                {registrationState.message}
-              </p>
-              {registrationState.status === "failed" && (registrationState.logTail?.length ?? 0) > 0 && (
-                <pre className="registration-error-details">
-                  {registrationState.logTail?.slice(-5).join("\n")}
-                </pre>
-              )}
-
+              <WorkflowStatus
+                status={registrationPending ? "running" : registrationState.status}
+                title={registrationState.status === "failed" ? "Import interrompu"
+                  : registrationState.status === "uploading" ? "Transfert de l'image"
+                    : registrationPending || registrationState.status === "running" ? "Préparation du cerveau et des coupes"
+                      : registrationFile ? "Image prête à importer"
+                        : registrationState.hasViewerAssets ? "Image disponible" : "Choisir une image NIfTI"}
+                message={registrationState.message} logs={registrationFile && registrationState.status === "idle" ? [] : registrationState.logTail}
+              />
             </div>
             <footer className="registration-dialog-actions">
               {registrationState.hasViewerAssets && (
@@ -1961,27 +1977,29 @@ export default function App() {
                 </button>
               )}
               <button type="button" onClick={() => setRegistrationOpen(false)}>
-                Fermer
+                {imageWorkBusy ? "Continuer en arrière-plan" : "Fermer"}
               </button>
               <button
                 className="is-primary"
                 type="button"
                 disabled={
-                  !registrationFile ||
+                  (!registrationFile && !registrationState.hasViewerAssets) ||
                   registrationPending ||
                   registrationState.status === "uploading" ||
                   registrationState.status === "running" ||
                   allenRegistrationState.status === "running"
                 }
-                onClick={() => void startRegistration()}
+                onClick={() => {
+                  if (registrationFile) void startRegistration();
+                  else openImageTask("atlas");
+                }}
               >
                 {registrationState.status === "uploading"
                   ? "Import en cours"
                   : registrationPending || registrationState.status === "running"
                   ? "Préparation en cours"
-                  : registrationState.hasViewerAssets
-                    ? "Réimporter"
-                    : "Importer"}
+                  : registrationFile ? registrationState.status === "failed" ? "Réessayer l'import" : "Importer l'image"
+                    : registrationState.hasViewerAssets ? "Régions Allen" : "Importer l'image"}
               </button>
             </footer>
           </section>
@@ -1998,7 +2016,7 @@ export default function App() {
             <header className="registration-dialog-header">
               <div>
                 <p className="panel-kicker">Annotations anatomiques</p>
-                <h2 id="allen-registration-title">Recaler Allen</h2>
+                <h2 id="allen-registration-title">Régions Allen sur l'image</h2>
               </div>
               <button
                 aria-label="Fermer"
@@ -2010,54 +2028,45 @@ export default function App() {
               </button>
             </header>
             <div className="registration-dialog-body">
+              {imageWorkflow("atlas")}
               <div className="registration-dataset">
                 <div>
                   <strong>{registrationState.fileName ?? "Image importée"}</strong>
-                  <span>Recalage SyN complet · cerveau extrait vers Allen CCF 2017</span>
+                  <span>Atlas Allen CCF 2017 · espace natif de l'image</span>
                 </div>
-                <span className={`registration-status is-${allenRegistrationState.status}`}>
-                  {allenRegistrationState.status === "idle"
-                    ? "Prêt"
-                    : allenRegistrationState.status === "running"
-                      ? "En cours"
-                      : allenRegistrationState.status === "completed"
-                        ? "Terminé"
-                        : "Échec"}
-                </span>
               </div>
-              {allenRegistrationState.status === "running" && (
-                <div className="registration-progress" aria-label="Recalage en cours">
-                  <span />
-                </div>
-              )}
-              <p
-                className={`registration-message${allenRegistrationState.status === "failed" ? " is-error" : ""}`}
-                aria-live="polite"
-              >
-                {allenRegistrationState.message}
-              </p>
-              {allenRegistrationState.logTail.length > 0 && (
-                <pre className="registration-log-details">
-                  {allenRegistrationState.logTail.slice(-8).join("\n")}
-                </pre>
-              )}
+              <WorkflowStatus status={allenRegistrationState.status}
+                title={allenRegistrationState.status === "running" ? "Recalage et préparation des régions en cours"
+                  : allenRegistrationState.status === "failed" ? "Recalage interrompu"
+                    : subjectAnnotationsAvailable ? "Régions Allen disponibles"
+                      : allenRegistrationState.status === "completed" ? "Régions à préparer" : "Recalage non lancé"}
+                message={allenRegistrationState.message} logs={allenRegistrationState.logTail} />
             </div>
             <footer className="registration-dialog-actions">
               <button type="button" onClick={() => setAllenRegistrationOpen(false)}>
-                Fermer
+                {allenRegistrationState.status === "running" ? "Continuer en arrière-plan" : "Fermer"}
               </button>
               <button
-                className="is-primary"
+                className={subjectAnnotationsAvailable ? undefined : "is-primary"}
                 type="button"
-                disabled={allenRegistrationState.status === "running"}
-                onClick={() => void startAllenRegistration()}
+                disabled={imageWorkBusy || !registrationState.hasViewerAssets}
+                onClick={() => {
+                  if (!subjectAnnotationsAvailable || window.confirm("Relancer le recalage et recalculer les régions Allen de cette image ?")) {
+                    void startAllenRegistration();
+                  }
+                }}
               >
                 {subjectAnnotationsAvailable
-                  ? "Relancer le recalage"
+                  ? "Recalculer les régions"
                   : allenRegistrationState.status === "completed"
                     ? "Préparer les régions"
-                    : "Lancer le recalage"}
+                    : allenRegistrationState.status === "failed" ? "Réessayer le recalage" : "Lancer le recalage"}
               </button>
+              {subjectAnnotationsAvailable && <button type="button" className="is-primary" onClick={() => {
+                setViewerSource("subject");
+                setShowImportedAnnotations(true);
+                setAllenRegistrationOpen(false);
+              }}>Voir les régions</button>}
             </footer>
           </section>
         </div>
@@ -2085,6 +2094,8 @@ export default function App() {
               </button>
             </header>
             <div className="registration-dialog-body modalities-body">
+              {imageWorkflow("modalities")}
+              <div className="workflow-reference"><span>Image de référence</span><strong>{registrationState.fileName ?? "Aucune image importée"}</strong></div>
               <section className="modality-import-panel">
                 <label className="modality-name-field">
                   <span>Nom de la modalité</span>
@@ -2100,6 +2111,7 @@ export default function App() {
                 <label className="registration-file-picker">
                   <input
                     type="file"
+                    aria-label="Fichier de modalité NIfTI"
                     accept=".nii,.nii.gz,application/gzip"
                     disabled={modalityState.status === "uploading"}
                     onClick={(event) => { event.currentTarget.value = ""; }}
@@ -2111,28 +2123,26 @@ export default function App() {
                       }
                     }}
                   />
+                  <small>Fichier NIfTI</small>
                   <span>{modalityFile ? "Changer de fichier" : "Choisir un fichier"}</span>
-                  <small>{modalityFile?.name ?? ".nii ou .nii.gz"}</small>
                 </label>
                 <button
                   type="button"
                   className="modality-import-button"
-                  disabled={!modalityFile || !modalityName.trim() || modalityState.status === "uploading"}
+                  disabled={!registrationState.hasViewerAssets || !modalityFile || !modalityName.trim() || modalityState.status === "uploading"}
                   onClick={() => void importModality()}
                 >
                   {modalityState.status === "uploading" ? "Validation en cours" : "Importer"}
                 </button>
               </section>
-              {modalityState.status === "uploading" && (
-                <div className="registration-progress" aria-label="Import en cours"><span /></div>
-              )}
-              <p
-                className={`registration-message${modalityState.status === "failed" ? " is-error" : ""}`}
-                aria-live="polite"
-              >
-                {modalityState.message}
-              </p>
-              <div className="modality-list">
+              {modalityFile && <p className="modality-selected-file">{modalityFile.name}</p>}
+              <WorkflowStatus status={modalityState.status}
+                title={modalityState.status === "uploading" ? "Import et vérification de la grille"
+                  : modalityState.status === "failed" ? "Opération sur la modalité interrompue"
+                    : modalityState.modalities.length > 0 ? `${modalityState.modalities.length} modalité${modalityState.modalities.length > 1 ? "s" : ""} disponible${modalityState.modalities.length > 1 ? "s" : ""}`
+                      : "Aucune modalité complémentaire"}
+                message={modalityState.message} />
+              {modalityState.modalities.length > 0 && <div className="modality-list">
                 {modalityState.modalities.map((modality) => (
                   <article className="modality-row" key={modality.id}>
                     <div className="modality-row-heading">
@@ -2140,7 +2150,8 @@ export default function App() {
                         <strong>{modality.name}</strong>
                         <span>{modality.sourceFile}</span>
                       </div>
-                      <span className={`modality-geometry is-${modality.geometryStatus}`}>
+                      <span className={`modality-geometry is-${modality.geometryStatus}`}
+                        title={modality.geometryStatus === "compatible" ? "Grille identique à l'image de référence" : "Grille adaptée à l'image de référence, sans recalage anatomique supplémentaire"}>
                         {modality.geometryStatus === "compatible"
                           ? "Grille compatible"
                           : "Rééchantillonnée"}
@@ -2157,6 +2168,12 @@ export default function App() {
                         <dd>{modality.valueRange.map((value) => value.toPrecision(4)).join(" – ")}</dd>
                       </div>
                     </dl>
+                    <div className="modality-row-actions">
+                      <button type="button" className="modality-show" onClick={() => {
+                        setActiveModalityId(modality.id);
+                        setViewerSource("subject");
+                        setModalitiesOpen(false);
+                      }}>{viewerSource === "subject" && activeModalityId === modality.id ? "Affichée" : "Afficher"}</button>
                     <button
                       type="button"
                       className="modality-delete"
@@ -2168,12 +2185,10 @@ export default function App() {
                     >
                       Supprimer
                     </button>
+                    </div>
                   </article>
                 ))}
-                {modalityState.modalities.length === 0 && (
-                  <p className="modality-empty">Aucune modalité importée</p>
-                )}
-              </div>
+              </div>}
             </div>
             <footer className="registration-dialog-actions">
               <button type="button" onClick={() => setModalitiesOpen(false)}>Fermer</button>
@@ -2294,6 +2309,14 @@ export default function App() {
               </button>
             </header>
             <div className="registration-dialog-body">
+              {registrationState.hasViewerAssets && <>
+                {imageWorkflow("connectivity")}
+                <div className="workflow-reference"><span>Image cible</span><strong>{registrationState.fileName}</strong></div>
+                {!subjectAnnotationsAvailable && <div className="workflow-prerequisite">
+                  <span>Projection sur l'image : recalage Allen requis</span>
+                  <button type="button" onClick={() => openImageTask("atlas")}>Régions Allen</button>
+                </div>}
+              </>}
               <div className="registration-dataset">
                 <div>
                   <strong>
@@ -2303,15 +2326,6 @@ export default function App() {
                   </strong>
                   <span>Densité de projection et site d’injection · 50 µm</span>
                 </div>
-                <span className={`registration-status is-${connectivityState.status}`}>
-                  {connectivityState.status === "idle"
-                    ? "Prêt"
-                    : connectivityState.status === "running"
-                      ? "Chargement"
-                      : connectivityState.status === "completed"
-                        ? "Terminé"
-                        : "Échec"}
-                </span>
               </div>
               <div className="connectivity-load-modes" role="tablist" aria-label="Méthode de sélection">
                 <button
@@ -2426,40 +2440,16 @@ export default function App() {
                   <small>Exemple proposé par M2M : 100140756</small>
                 </label>
               )}
-              {(connectivityState.status === "running" || connectivityState.nativeStatus === "running") && (
-                <div
-                  className="registration-progress"
-                  aria-label={connectivityState.nativeStatus === "running"
-                    ? "Projection de la connectivité vers l'image"
-                    : "Chargement de la connectivité"}
-                >
-                  <span />
-                </div>
-              )}
-              <p
-                className={`registration-message${connectivityState.status === "failed" ? " is-error" : ""}`}
-                aria-live="polite"
-              >
-                {connectivityState.message}
-              </p>
-              {connectivityState.logTail.length > 0 && (
-                <pre className="registration-log-details">
-                  {connectivityState.logTail.slice(-8).join("\n")}
-                </pre>
-              )}
-              {connectivityState.nativeStatus !== "idle" && (
-                <p
-                  className={`registration-message${connectivityState.nativeStatus === "failed" ? " is-error" : ""}`}
-                  aria-live="polite"
-                >
-                  {connectivityState.nativeMessage}
-                </p>
-              )}
-              {connectivityState.nativeLogTail.length > 0 && (
-                <pre className="registration-log-details">
-                  {connectivityState.nativeLogTail.slice(-8).join("\n")}
-                </pre>
-              )}
+              <WorkflowStatus status={connectivityState.status}
+                title={connectivityState.status === "running" ? "Préparation de l'expérience Allen"
+                  : connectivityState.status === "failed" ? "Chargement de l'expérience interrompu"
+                    : connectivityState.hasViewerAssets ? "Carte disponible dans l'atlas Allen" : "Aucune expérience chargée"}
+                message={connectivityState.message} logs={connectivityState.logTail} />
+              {connectivityState.nativeStatus !== "idle" && <WorkflowStatus status={connectivityState.nativeStatus}
+                title={connectivityState.nativeStatus === "running" ? "Projection dans l'image personnelle en cours"
+                  : connectivityState.nativeStatus === "failed" ? "Projection dans l'image interrompue"
+                    : "Carte disponible dans l'image personnelle"}
+                message={connectivityState.nativeMessage} logs={connectivityState.nativeLogTail} />}
             </div>
             <footer className="registration-dialog-actions">
               <button
@@ -2486,25 +2476,37 @@ export default function App() {
                     setConnectivityOpen(false);
                   }}
                 >
-                  Afficher la carte
+                  Voir dans Allen
                 </button>
               )}
               {connectivityState.hasViewerAssets && subjectAnnotationsAvailable && (
                 <button
                   className="is-primary"
                   type="button"
-                  disabled={connectivityState.nativeStatus === "running"}
-                  onClick={() => void startNativeConnectivity()}
+                  disabled={imageWorkBusy || connectivityState.status === "running"}
+                  onClick={() => {
+                    if (connectivityState.hasNativeViewerAssets) {
+                      setExperimentExplorerEnabled(false);
+                      setViewerSource("subject");
+                      setConnectivityVisible(true);
+                      setConnectivityOpen(false);
+                    } else void startNativeConnectivity();
+                  }}
                 >
                   {connectivityState.nativeStatus === "running"
                     ? "Projection en cours"
                     : connectivityState.hasNativeViewerAssets
-                      ? "Reprojeter sur l'image"
+                      ? "Voir dans mon image"
                       : "Projeter sur l'image"}
                 </button>
               )}
+              {connectivityState.hasNativeViewerAssets && subjectAnnotationsAvailable && <button type="button"
+                disabled={imageWorkBusy || connectivityState.status === "running"}
+                onClick={() => {
+                  if (window.confirm("Recalculer la projection de cette expérience dans l'image personnelle ?")) void startNativeConnectivity();
+                }}>Recalculer la projection</button>}
               <button type="button" onClick={() => setConnectivityOpen(false)}>
-                Fermer
+                {connectivityState.nativeStatus === "running" || connectivityState.status === "running" ? "Continuer en arrière-plan" : "Fermer"}
               </button>
               {connectivityLoadMode === "id" && (
                 <button
@@ -2604,6 +2606,14 @@ export default function App() {
                     />
                   </div>}
                 </section>
+                {viewerSource === "subject" && !subjectAnnotationsAvailable && <section className="subject-next-action">
+                  <strong>Régions Allen</strong>
+                  <span>{allenRegistrationState.status === "running" ? "Recalage en cours"
+                    : allenRegistrationState.status === "failed" ? "Recalage interrompu" : "Non calculées"}</span>
+                  <button type="button" onClick={() => openImageTask("atlas")}>
+                    {allenRegistrationState.status === "running" ? "Suivre le recalage" : "Gérer le recalage"}
+                  </button>
+                </section>}
                 <section
                   className={`region-picker${viewerSource === "subject" && !subjectAnnotationsAvailable ? " is-hidden" : ""}`}
                   aria-label="Régions anatomiques"

@@ -517,6 +517,191 @@ h1 {
   overflow-y: auto;
 }
 
+.image-workflow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.image-workflow button {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  gap: 8px;
+  padding: 10px 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--ui-muted);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.image-workflow button[aria-current="step"] {
+  border-bottom-color: var(--ui-accent);
+  color: #edf0f2;
+}
+
+.image-workflow button:hover:not(:disabled) {
+  background: #25292d;
+}
+
+.image-workflow button:disabled {
+  cursor: not-allowed;
+}
+
+.image-workflow button:disabled:not([aria-current]) {
+  color: #8e989f;
+}
+
+.image-workflow button > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.image-workflow strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.image-workflow small {
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.workflow-status {
+  min-width: 0;
+  margin-top: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--ui-border);
+}
+
+.workflow-status-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #edf0f2;
+  font-size: 14px;
+}
+
+.workflow-status-heading svg {
+  flex-shrink: 0;
+}
+
+.workflow-status.is-completed .workflow-status-heading svg {
+  color: #7dcea3;
+}
+
+.workflow-status.is-failed .workflow-status-heading,
+.image-workflow .is-error {
+  color: #f0a1a1;
+}
+
+.workflow-status-message {
+  margin: 8px 0 0 27px;
+  color: var(--ui-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.workflow-logs {
+  margin: 14px 0 0 27px;
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+
+.workflow-logs summary {
+  width: fit-content;
+  cursor: pointer;
+}
+
+.workflow-logs pre {
+  max-height: 200px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--ui-border);
+  border-radius: 4px;
+  background: #141618;
+  font: 12px/1.5 Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.workflow-reference {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
+.workflow-reference strong {
+  color: #edf0f2;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.workflow-prerequisite {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ui-border);
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+
+.workflow-prerequisite button,
+.subject-next-action button,
+.modality-show {
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid #527684;
+  border-radius: 4px;
+  background: #26414b;
+  color: #edf0f2;
+  font: inherit;
+  cursor: pointer;
+}
+
+.workflow-text-action {
+  margin-top: 12px;
+  padding: 4px 0;
+  border: 0;
+  color: var(--ui-accent);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.subject-next-action {
+  display: grid;
+  gap: 10px;
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--ui-border);
+  font-size: 13px;
+}
+
+.subject-next-action span {
+  color: var(--ui-muted);
+}
+
+.is-spinning {
+  animation: workflow-spin 1.4s linear infinite;
+}
+
+@keyframes workflow-spin {
+  to { transform: rotate(360deg); }
+}
+
 .connectivity-dialog {
   width: min(720px, calc(100vw - 56px));
 }
@@ -623,7 +808,7 @@ h1 {
 
 .modality-import-panel {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(190px, auto) auto;
+  grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr) auto;
   align-items: end;
   gap: 10px;
   padding-bottom: 14px;
@@ -631,15 +816,34 @@ h1 {
 }
 
 .modality-import-panel .registration-file-picker {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  width: 100%;
   min-height: 38px;
   align-self: end;
   margin-top: 0;
 }
 
 .modality-import-panel .registration-file-picker span {
+  grid-row: auto;
   min-height: 38px;
   padding-top: 9px;
   padding-bottom: 9px;
+}
+
+.modality-selected-file {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.modality-row-actions {
+  display: grid;
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  gap: 8px;
+  align-self: center;
 }
 
 .modality-name-field {
@@ -747,6 +951,7 @@ h1 {
 
 .modality-row dl {
   display: flex;
+  flex-wrap: wrap;
   grid-column: 1;
   gap: 18px;
   margin: 0;
@@ -774,8 +979,6 @@ h1 {
 }
 
 .modality-delete {
-  grid-row: 1 / span 2;
-  grid-column: 2;
   align-self: center;
   min-height: 30px;
   padding: 0 10px;
@@ -1061,7 +1264,7 @@ h1 {
   display: block;
   width: 36%;
   height: 100%;
-  background: #82ad9b;
+  background: var(--ui-accent);
   animation: registration-progress 1.4s ease-in-out infinite;
 }
 
