@@ -66,3 +66,15 @@ test("busy progress does not invent a completion percentage", () => {
   assert.match(html, /role="progressbar"/);
   assert.doesNotMatch(html, /aria-valuenow/);
 });
+
+test("routine messages do not repeat the idle state", () => {
+  const html = renderToStaticMarkup(createElement(WorkflowStatus, { status: "idle", title: "Choisir une image NIfTI", message: "Selectionnez une image" }));
+  assert.match(html, /Choisir une image NIfTI/);
+  assert.doesNotMatch(html, /Selectionnez une image/);
+});
+
+test("completed messages remain available inside the collapsed log", () => {
+  const html = renderToStaticMarkup(createElement(WorkflowStatus, { status: "completed", title: "Image disponible", message: "Image prete dans le visualiseur", logs: ["OK"] }));
+  assert.doesNotMatch(html, /workflow-status-message/);
+  assert.match(html, /<details class="workflow-logs"><summary>Journal technique<\/summary><p>Image prete/);
+});

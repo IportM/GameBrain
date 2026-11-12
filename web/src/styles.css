@@ -527,7 +527,8 @@ h1 {
 
 .image-workflow button {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  min-height: 54px;
   min-width: 0;
   gap: 8px;
   padding: 10px 6px 12px;
@@ -563,8 +564,24 @@ h1 {
 }
 
 .image-workflow strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 13px;
   font-weight: 600;
+}
+
+.workflow-count {
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 4px;
+  place-items: center;
+  border-radius: 4px;
+  color: var(--ui-muted);
+  background: #30363b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .image-workflow small {
@@ -2798,7 +2815,7 @@ h1 {
 
 .connectivity-range {
   display: grid;
-  gap: 7px;
+  gap: 4px;
   min-width: 0;
   color: var(--tool-muted);
   font-size: 12px;
@@ -2809,11 +2826,76 @@ h1 {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  align-items: center;
 }
 
 .connectivity-range output {
+  display: inline-grid;
+  min-width: 50px;
+  min-height: 26px;
+  padding: 3px 6px;
+  place-items: center;
+  border: 1px solid #48515a;
+  border-radius: 4px;
+  background: #141618;
   color: #eef2ef;
   font-variant-numeric: tabular-nums;
+}
+
+.connectivity-control-ranges input[type="range"] {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.connectivity-control-ranges input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, #58b5cc 0 var(--range-progress), #424b53 var(--range-progress) 100%);
+}
+
+.connectivity-control-ranges input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border: 3px solid #58b5cc;
+  border-radius: 50%;
+  background: #f5f8fa;
+  box-shadow: 0 0 0 2px #141618;
+}
+
+.connectivity-control-ranges input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #424b53;
+}
+
+.connectivity-control-ranges input[type="range"]::-moz-range-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: #58b5cc;
+}
+
+.connectivity-control-ranges input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 3px solid #58b5cc;
+  border-radius: 50%;
+  background: #f5f8fa;
+  box-shadow: 0 0 0 2px #141618;
+}
+
+.connectivity-range .connectivity-range-limits {
+  margin-top: -2px;
+  color: #adb6bd;
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .connectivity-range input {

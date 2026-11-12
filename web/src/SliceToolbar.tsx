@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from "react";
+import { memo, type CSSProperties, type ReactNode } from "react";
 import { MapPin } from "lucide-react";
 
 import type { ConnectivityInspection } from "./InteractiveSlice";
@@ -224,21 +224,29 @@ function SliceToolbarComponent({
               <span>Opacité <output>{Math.round(connectivityOpacity * 100)}%</output></span>
               <input
                 type="range"
+                aria-label="Opacité de la connectivité"
+                aria-valuetext={`${Math.round(connectivityOpacity * 100)} %`}
+                style={{ "--range-progress": `${Math.round(connectivityOpacity * 100)}%` } as CSSProperties}
                 min="0"
                 max="100"
                 value={Math.round(connectivityOpacity * 100)}
                 onChange={(event) => onConnectivityOpacityChange(Number(event.currentTarget.value) / 100)}
               />
+              <span className="connectivity-range-limits" aria-hidden="true"><span>0 %</span><span>100 %</span></span>
             </label>
             <label className="connectivity-range">
               <span>Seuil du signal <output>{Math.round(connectivityThreshold * 100)}%</output></span>
               <input
                 type="range"
+                aria-label="Seuil du signal de connectivité"
+                aria-valuetext={`${Math.round(connectivityThreshold * 100)} %`}
+                style={{ "--range-progress": `${connectivityThreshold / 0.8 * 100}%` } as CSSProperties}
                 min="0"
                 max="80"
                 value={Math.round(connectivityThreshold * 100)}
                 onChange={(event) => onConnectivityThresholdChange(Number(event.currentTarget.value) / 100)}
               />
+              <span className="connectivity-range-limits" aria-hidden="true"><span>0 %</span><span>80 %</span></span>
             </label>
           </div>
           </div>

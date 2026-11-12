@@ -1827,7 +1827,7 @@ export default function App() {
                     setAllenRegistrationOpen(true);
                   }}
                 >
-                  {allenRegistrationState.status === "running" ? "Suivre le recalage" : subjectAnnotationsAvailable ? "Régions Allen disponibles" : "Calculer les régions Allen"}
+                  {allenRegistrationState.status === "running" ? "Suivre le recalage" : "Recalage Allen"}
                 </button>
                 <button
                   aria-label="Gérer les modalités complémentaires"
@@ -1902,8 +1902,7 @@ export default function App() {
           >
             <header className="registration-dialog-header">
               <div>
-                <p className="panel-kicker">Volume personnel</p>
-                <h2 id="registration-title">Importer une image</h2>
+                <h2 id="registration-title">{registrationState.hasViewerAssets && !registrationFile ? "Image de référence" : "Importer une image"}</h2>
               </div>
               <button
                 aria-label="Fermer"
@@ -1999,7 +1998,7 @@ export default function App() {
                   : registrationPending || registrationState.status === "running"
                   ? "Préparation en cours"
                   : registrationFile ? registrationState.status === "failed" ? "Réessayer l'import" : "Importer l'image"
-                    : registrationState.hasViewerAssets ? "Régions Allen" : "Importer l'image"}
+                    : registrationState.hasViewerAssets ? "Ouvrir le recalage" : "Importer l'image"}
               </button>
             </footer>
           </section>
@@ -2015,8 +2014,7 @@ export default function App() {
           >
             <header className="registration-dialog-header">
               <div>
-                <p className="panel-kicker">Annotations anatomiques</p>
-                <h2 id="allen-registration-title">Régions Allen sur l'image</h2>
+                <h2 id="allen-registration-title">Recalage Allen</h2>
               </div>
               <button
                 aria-label="Fermer"
@@ -2081,7 +2079,6 @@ export default function App() {
           >
             <header className="registration-dialog-header">
               <div>
-                <p className="panel-kicker">Données complémentaires</p>
                 <h2 id="modalities-title">Modalités</h2>
               </div>
               <button
