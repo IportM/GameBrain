@@ -7,11 +7,12 @@ export default function ConnectivityLibrary({ experiments, activeId, disabled, e
   error: string | null;
   onSelect: (id: number) => void;
 }) {
-  if (experiments.length === 0 && !error) return null;
+  if (experiments.length === 0 && !error) return activeId
+    ? <strong className="connectivity-library-empty">Expérience {activeId}</strong>
+    : null;
   const current = experiments.findIndex((entry) => entry.id === activeId);
   return (
-    <div className="connectivity-library">
-      <span>Téléchargées ({experiments.length})</span>
+    <div className="connectivity-library" title={`${experiments.length} expérience(s) téléchargée(s)`}>
       <select
         aria-label="Expériences de connectivité téléchargées"
         value={current < 0 ? "" : String(activeId)}

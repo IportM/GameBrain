@@ -2101,82 +2101,41 @@ h1 {
   flex: 0 0 auto;
 }
 
-.connectivity-settings {
-  display: flex;
-  margin-right: auto;
-}
-
-.connectivity-toggle {
-  display: flex;
-  width: 140px;
-  min-height: 29px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 0 9px;
-  border: 1px solid #465049;
-  border-radius: 4px;
-  color: #aeb8b2;
-  background: #1b211d;
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.connectivity-toggle > span {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  background: #717b75;
-}
-
-.connectivity-toggle.is-active {
-  border-color: #6f916f;
-  color: #edf6ee;
-  background: #293a2d;
-}
-
-.connectivity-toggle.is-active > span {
-  background: #cce76b;
-  box-shadow: 0 0 0 3px rgb(204 231 107 / 12%);
-}
-
-.connectivity-toggle:focus-visible {
-  outline: 2px solid #e5f1e8;
-  outline-offset: 2px;
-}
-
 .slice-toolbar-stack {
   display: grid;
   min-width: 0;
+  --tool-surface: #1d2023;
+  --tool-border: #353b40;
+  --tool-text: #edf0f2;
+  --tool-muted: #adb6bd;
+  --tool-active: #58b5cc;
 }
 
 .connectivity-library {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 28px 28px;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
   align-items: center;
   gap: 6px;
   order: 1;
   min-width: 0;
   padding: 6px 10px;
-  border-bottom: 1px solid #354039;
-  background: #171e19;
-  color: #aebfb3;
-  font-size: 10px;
+  border-bottom: 1px solid var(--tool-border);
+  background: var(--tool-surface);
+  color: var(--tool-text);
+  font-size: 12px;
 }
 
 .connectivity-library select,
 .connectivity-library button {
   width: 100%;
   min-width: 0;
-  height: 28px;
-  border: 1px solid #48594e;
+  height: 32px;
+  border: 1px solid var(--tool-border);
   border-radius: 3px;
-  background: #202a24;
-  color: #e3eee6;
+  background: #141618;
+  color: var(--tool-text);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .connectivity-library select {
@@ -2190,7 +2149,7 @@ h1 {
 }
 
 .connectivity-library :focus-visible {
-  outline: 2px solid #b6d8c5;
+  outline: 2px solid var(--tool-active);
   outline-offset: 1px;
 }
 
@@ -2203,7 +2162,8 @@ h1 {
   display: flex;
   min-height: 42px;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   order: 1;
   padding: 6px 12px;
@@ -2213,15 +2173,77 @@ h1 {
 
 .connectivity-control-strip {
   display: grid;
-  height: 92px;
-  grid-template-columns: minmax(170px, 1fr) auto minmax(190px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  padding: 4px 12px 14px;
+  color: var(--tool-text);
+}
+
+.connectivity-session {
+  min-width: 0;
   order: 2;
-  padding: 8px 12px 12px;
-  border-bottom: 1px solid #303733;
-  color: #dce3de;
-  background: #171c19;
+  border-bottom: 1px solid var(--tool-border);
+  background: var(--tool-surface);
+  color: var(--tool-text);
+}
+
+.connectivity-session-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 12px;
+}
+
+.connectivity-session-experiment {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.connectivity-session-experiment .connectivity-library {
+  padding: 0;
+  border: 0;
+}
+
+.connectivity-experiment-details {
+  margin: 0 12px 10px;
+  color: var(--tool-muted);
+  font-size: 12px;
+}
+
+.connectivity-experiment-details summary {
+  overflow: hidden;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectivity-experiment-details summary:focus-visible {
+  outline: 2px solid var(--tool-active);
+  outline-offset: 3px;
+}
+
+.connectivity-experiment-details dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  margin: 10px 0 0;
+}
+
+.connectivity-experiment-details dl div {
+  min-width: 0;
+}
+
+.connectivity-experiment-details dt {
+  color: var(--tool-muted);
+}
+
+.connectivity-experiment-details dd {
+  margin: 3px 0 0;
+  color: var(--tool-text);
+  overflow-wrap: anywhere;
 }
 
 .modality-control-strip {
@@ -2409,7 +2431,8 @@ h1 {
 
 .connectivity-control-ranges {
   display: grid;
-  gap: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
 }
 
 .connectivity-master-toggle,
@@ -2418,21 +2441,19 @@ h1 {
   align-items: center;
   gap: 7px;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  accent-color: var(--tool-active);
 }
 
 .connectivity-layers {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  display: flex;
+  gap: 18px;
 }
 
 .connectivity-layers label {
-  min-height: 29px;
-  padding: 0 9px;
-  border: 1px solid #39423d;
-  border-radius: 4px;
-  background: #1d231f;
+  min-height: 24px;
+  padding: 0;
 }
 
 .connectivity-swatch {
@@ -2452,8 +2473,9 @@ h1 {
 .connectivity-range {
   display: grid;
   gap: 7px;
-  color: #aeb8b2;
-  font-size: 10px;
+  min-width: 0;
+  color: var(--tool-muted);
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -2470,7 +2492,13 @@ h1 {
 
 .connectivity-range input {
   width: 100%;
-  accent-color: #8fba78;
+  margin: 0;
+  accent-color: var(--tool-active);
+}
+
+.connectivity-session input:focus-visible {
+  outline: 2px solid var(--tool-active);
+  outline-offset: 3px;
 }
 
 .connectivity-readout {
@@ -2609,7 +2637,7 @@ h1 {
 .slice-tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  min-height: 34px;
+  min-height: 38px;
   order: 0;
   border-bottom: 1px solid #303733;
   background: #141916;
@@ -2622,7 +2650,7 @@ h1 {
   color: #8f9a93;
   background: transparent;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -3002,28 +3030,12 @@ h1 {
     padding-inline: 8px;
   }
 
-  .connectivity-toggle {
-    width: 124px;
-    padding-inline: 6px;
-  }
-
   .slice-layer-controls label {
     padding-inline: 6px;
   }
 
   .resolution-selector {
     grid-template-columns: repeat(3, 42px);
-  }
-
-  .connectivity-control-strip {
-    height: auto;
-    grid-template-columns: minmax(150px, 1fr) auto;
-    gap: 8px 12px;
-  }
-
-  .connectivity-control-ranges {
-    grid-column: 1 / -1;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .modality-control-strip {

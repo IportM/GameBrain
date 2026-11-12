@@ -95,22 +95,8 @@ function SliceToolbarComponent({
 }: SliceToolbarProps) {
   return (
     <div className="slice-toolbar-stack">
-      {library}
+      {(!connectivityAvailable || !connectivityControlsVisible) && library}
       <div className="slice-command-bar" aria-label="Outils de la coupe">
-        {connectivityAvailable && (
-          <div className="connectivity-settings">
-            <button
-              type="button"
-              className={`connectivity-toggle${connectivityVisible ? " is-active" : ""}`}
-              aria-pressed={connectivityVisible}
-              title={connectivityVisible ? "Masquer la connectivité" : "Afficher la connectivité"}
-              onClick={() => onConnectivityVisibleChange(!connectivityVisible)}
-            >
-              <span aria-hidden="true" />
-              Connectivité {connectivityState.experimentId}
-            </button>
-          </div>
-        )}
         {viewerSource === "allen" ? (
           <>
             <div className="slice-layer-controls" aria-label="Affichage des annotations Allen">
@@ -173,41 +159,32 @@ function SliceToolbarComponent({
         )}
       </div>
       {connectivityAvailable && connectivityControlsVisible && (
-        <div className="connectivity-control-strip">
-          <div className="connectivity-control-summary">
-            <div className="connectivity-control-heading">
-              <strong>
-                {connectivityState.metadata?.primaryStructure.acronym ||
-                  `Exp. ${connectivityState.experimentId}`}
-              </strong>
-              <label className="connectivity-master-toggle">
-                <input
-                  type="checkbox"
-                  checked={connectivityVisible}
-                  onChange={(event) => onConnectivityVisibleChange(event.currentTarget.checked)}
-                />
-                <span>Afficher</span>
-              </label>
+        <section className="connectivity-session" aria-label="Expérience de connectivité active">
+          <div className="connectivity-session-header">
+            <div className="connectivity-session-experiment">
+              {library || <strong>Expérience {connectivityState.experimentId}</strong>}
             </div>
-            <span>
-                {connectivityState.metadata?.primaryStructure.name || (
-                  connectivityState.status === "running"
-                    ? "Métadonnées anatomiques en cours de récupération"
-                    : "Métadonnées anatomiques indisponibles"
-                )}
-            </span>
-            {connectivityState.metadata && (
-              <small>
-                {connectivityState.metadata.transgenicLine ||
-                  connectivityState.metadata.strain ||
-                  "Lignée non renseignée"}
-                {connectivityState.metadata.sex ? ` · ${connectivityState.metadata.sex}` : ""}
-                {connectivityState.metadata.injectionVolumeMm3 !== null
-                  ? ` · injection ${connectivityState.metadata.injectionVolumeMm3.toFixed(3)} mm³`
-                  : ""}
-              </small>
-            )}
+            <label className="connectivity-master-toggle">
+              <input
+                type="checkbox"
+                checked={connectivityVisible}
+                onChange={(event) => onConnectivityVisibleChange(event.currentTarget.checked)}
+              />
+              <span>Afficher la carte</span>
+            </label>
           </div>
+          {connectivityState.metadata && (
+            <details className="connectivity-experiment-details">
+              <summary>{connectivityState.metadata.primaryStructure.name || "Informations sur l'expérience"}</summary>
+              <dl>
+                <div><dt>Identifiant</dt><dd>{connectivityState.experimentId}</dd></div>
+                <div><dt>Lignée</dt><dd>{connectivityState.metadata.transgenicLine || connectivityState.metadata.strain || "Non renseignée"}</dd></div>
+                <div><dt>Sexe</dt><dd>{connectivityState.metadata.sex || "Non renseigné"}</dd></div>
+                <div><dt>Injection</dt><dd>{connectivityState.metadata.injectionVolumeMm3 !== null ? `${connectivityState.metadata.injectionVolumeMm3.toFixed(3)} mm³` : "Non renseignée"}</dd></div>
+              </dl>
+            </details>
+          )}
+          <div className="connectivity-control-strip">
           <div className="connectivity-layers" aria-label="Calques de connectivité">
             <label>
               <input
@@ -240,7 +217,7 @@ function SliceToolbarComponent({
               />
             </label>
             <label className="connectivity-range">
-              <span>Signal minimal <output>{Math.round(connectivityThreshold * 100)}%</output></span>
+              <span>Seuil du signal <output>{Math.round(connectivityThreshold * 100)}%</output></span>
               <input
                 type="range"
                 min="0"
@@ -250,7 +227,8 @@ function SliceToolbarComponent({
               />
             </label>
           </div>
-        </div>
+          </div>
+        </section>
       )}
       {modalityControlsVisible && (
         <div className="modality-control-strip" aria-label="Réglages visuels de la modalité">
