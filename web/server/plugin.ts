@@ -17,11 +17,13 @@ import type { Plugin } from "vite";
 
 import {
   loadConnectivityExperiment,
+  loadConnectivityCatalogue,
   normalizeConnectivityExperiment,
   resolveAllenStructure,
   type AllenConnectivityExperiment,
 } from "./allenApi";
 import { isLocalApiRequest } from "./security";
+import { downloadedExperiments, invalidateConnectivityLibrary, readyExperiment, readExperimentMetadata } from "./connectivityLibrary";
 type ImportStatus = "idle" | "uploading" | "running" | "completed" | "failed";
 type ImportState = {
   status: ImportStatus;
@@ -78,6 +80,13 @@ export function importApi(): Plugin {
   const regionStatisticsExportScript = resolve(projectRoot, "registration", "src", "export_region_statistics.py");
   const importsRoot = resolve(projectRoot, "registration", "imports");
   const connectivityRoot = resolve(projectRoot, "registration", "connectivity");
+  const persistExperimentMetadata = (id: number, metadata: AllenConnectivityExperiment | null) => {
+    const directory = resolve(connectivityRoot, String(id));
+    if (metadata && existsSync(directory)) {
+      writeFileSync(resolve(directory, "metadata.json"), JSON.stringify(metadata), "utf8");
+      invalidateConnectivityLibrary(connectivityRoot, id);
+    }
+  };
   let process: ChildProcessWithoutNullStreams | null = null;
   let registrationProcess: ChildProcessWithoutNullStreams | null = null;
   let connectivityProcess: ChildProcessWithoutNullStreams | null = null;
@@ -376,10 +385,11 @@ export function importApi(): Plugin {
       message: `Expérience Allen ${manifest.experiment_id} prête`,
       logTail: [],
       experimentId: Number(manifest.experiment_id),
-      metadata: null,
+      metadata: readExperimentMetadata(connectivityRoot, Number(manifest.experiment_id)),
     };
     void loadConnectivityExperiment(connectivityState.experimentId)
       .then((metadata) => {
+        persistExperimentMetadata(Number(manifest.experiment_id), metadata);
         if (connectivityState.experimentId === Number(manifest.experiment_id)) {
           connectivityState = { ...connectivityState, metadata };
         }
@@ -558,6 +568,8 @@ export function importApi(): Plugin {
         ? JSON.parse(readFileSync(manifestPath, "utf8"))
         : null,
       nativeStatus: nativeConnectivityState.status,
+      nativeFinishedAt: nativeManifest && existsSync(nativeManifest)
+        ? statSync(nativeManifest).mtime.toISOString() : null,
       nativeMessage: nativeConnectivityState.message,
       nativeLogTail: nativeConnectivityState.logTail,
       hasNativeViewerAssets: Boolean(nativeManifest && existsSync(nativeManifest)),
@@ -568,8 +580,11 @@ export function importApi(): Plugin {
   };
   const pushConnectivityLog = (chunk: Buffer) => {
     const lines = chunk.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const phase = [...lines].reverse().find((line) => /^\[(INFO|OK|CACHE)\]/.test(line));
     connectivityState = {
       ...connectivityState,
+      message: connectivityState.status === "running" && phase
+        ? phase.replace(/^\[(INFO|OK|CACHE)\]\s*/, "") : connectivityState.message,
       logTail: [...connectivityState.logTail, ...lines].slice(-10),
     };
   };
@@ -1036,6 +1051,7 @@ export function importApi(): Plugin {
           }
           modalityBinaryCache.clear();
           await stopNativeRegionWorker();
+          invalidateConnectivityLibrary(connectivityRoot);
           try {
             for (const path of safeRoots) clearDirectory(path);
           } catch (error) {
@@ -1080,6 +1096,32 @@ export function importApi(): Plugin {
             logTail: [],
           };
           response.end(JSON.stringify({ ok: true, message: "Session entièrement réinitialisée" }));
+          return;
+        }
+        if (request.url === "/api/connectivity/library" && request.method === "GET") {
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          const results = downloadedExperiments(connectivityRoot).map((entry) => ({
+            ...entry,
+            metadata: entry.metadata ?? (entry.id === connectivityState.experimentId ? connectivityState.metadata : null),
+            nativeAvailable: Boolean(currentOutput && existsSync(resolve(
+              currentOutput, "..", "registration", "native-connectivity", String(entry.id), "web", "manifest.json",
+            ))),
+          }));
+          response.end(JSON.stringify({ results }));
+          return;
+        }
+        if (request.url === "/api/connectivity/experiments" && request.method === "GET") {
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          try {
+            const results = await loadConnectivityCatalogue();
+            response.end(JSON.stringify({ results }));
+          } catch (error) {
+            response.statusCode = 502;
+            response.end(JSON.stringify({
+              message: error instanceof Error ? error.message : "Catalogue Allen indisponible",
+              results: [],
+            }));
+          }
           return;
         }
         if (request.url?.startsWith("/api/connectivity/search") && request.method === "GET") {
@@ -1144,7 +1186,7 @@ export function importApi(): Plugin {
           return;
         }
         if (request.url === "/api/connectivity/start" && request.method === "POST") {
-          if (connectivityProcess) {
+          if (connectivityProcess || nativeConnectivityProcess) {
             response.statusCode = 409;
             response.setHeader("Content-Type", "application/json; charset=utf-8");
             response.end(JSON.stringify(connectivityResponsePayload()));
@@ -1163,6 +1205,40 @@ export function importApi(): Plugin {
             return;
           }
           const output = resolve(connectivityRoot, String(experimentId));
+          const cached = readyExperiment(connectivityRoot, experimentId);
+          if (cached) {
+            currentConnectivityOutput = resolve(output, "web");
+            connectivityState = {
+              status: "completed",
+              startedAt: null,
+              finishedAt: cached.finishedAt,
+              message: `Expérience Allen ${experimentId} chargée depuis le disque`,
+              logTail: [],
+              experimentId,
+              metadata: cached.metadata,
+            };
+            const nativeManifest = currentOutput && resolve(
+              currentOutput, "..", "registration", "native-connectivity", String(experimentId), "web", "manifest.json",
+            );
+            nativeConnectivityState = {
+              status: nativeManifest && existsSync(nativeManifest) ? "completed" : "idle",
+              message: nativeManifest && existsSync(nativeManifest)
+                ? "Connectivité prête dans l'image importée"
+                : "Projetez la carte dans l'image importée",
+              logTail: [],
+            };
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            response.end(JSON.stringify(connectivityResponsePayload()));
+            if (!cached.metadata) {
+              void loadConnectivityExperiment(experimentId).then((metadata) => {
+                persistExperimentMetadata(experimentId, metadata);
+                if (connectivityState.experimentId === experimentId) {
+                  connectivityState = { ...connectivityState, metadata };
+                }
+              }).catch(() => undefined);
+            }
+            return;
+          }
           const missing = [python, connectivityScript].find((path) => !existsSync(path));
           if (missing) {
             connectivityState = {
@@ -1190,6 +1266,7 @@ export function importApi(): Plugin {
           };
           void loadConnectivityExperiment(experimentId)
             .then((metadata) => {
+              persistExperimentMetadata(experimentId, metadata);
               if (connectivityState.experimentId === experimentId) {
                 connectivityState = { ...connectivityState, metadata };
               }
@@ -1202,6 +1279,8 @@ export function importApi(): Plugin {
           };
           currentConnectivityOutput = null;
           connectivityStopReason = null;
+          invalidateConnectivityLibrary(connectivityRoot, experimentId);
+          mkdirSync(output, { recursive: true });
           connectivityProcess = spawn(
             python,
             [
@@ -1233,6 +1312,7 @@ export function importApi(): Plugin {
             connectivityProcess.kill();
           }, 5 * 60 * 1000);
           connectivityProcess.on("error", (error) => {
+            invalidateConnectivityLibrary(connectivityRoot, experimentId);
             if (connectivityTimeout) clearTimeout(connectivityTimeout);
             connectivityTimeout = null;
             connectivityState = {
@@ -1244,6 +1324,7 @@ export function importApi(): Plugin {
             connectivityProcess = null;
           });
           connectivityProcess.on("close", (code) => {
+            invalidateConnectivityLibrary(connectivityRoot, experimentId);
             if (connectivityTimeout) clearTimeout(connectivityTimeout);
             connectivityTimeout = null;
             const webOutput = resolve(output, "web");
@@ -1579,18 +1660,21 @@ export function importApi(): Plugin {
           return;
         }
         if (request.url?.startsWith("/api/connectivity/viewer/") && request.method === "GET") {
-          if (!currentConnectivityOutput) {
+          const url = new URL(request.url, "http://localhost");
+          const experimentId = url.searchParams.has("experiment")
+            ? Number(url.searchParams.get("experiment")) : connectivityState.experimentId;
+          if (!experimentId || !Number.isSafeInteger(experimentId) || experimentId <= 0) {
             response.statusCode = 404;
             response.end("Carte de connectivité indisponible");
             return;
           }
-          const pathname = new URL(request.url, "http://localhost").pathname;
+          const pathname = url.pathname;
           const asset = pathname.slice("/api/connectivity/viewer/".length);
           const valid =
             /^overlays\/(projection|injection)\/(coronal|sagittal|axial)\/(coronal|sagittal|axial)-\d{3,4}\.webp$/.test(asset) ||
             /^point-clouds\/(projection|injection)\.bin$/.test(asset) ||
             /^volumes\/(projection|injection)\.bin$/.test(asset);
-          const path = resolve(currentConnectivityOutput, asset);
+          const path = resolve(connectivityRoot, String(experimentId), "web", asset);
           if (!valid || !existsSync(path)) {
             response.statusCode = 404;
             response.end("Carte de connectivité indisponible");
@@ -1605,16 +1689,19 @@ export function importApi(): Plugin {
           return;
         }
         if (request.url?.startsWith("/api/connectivity/native-viewer/") && request.method === "GET") {
-          if (!currentOutput || !connectivityState.experimentId) {
+          const url = new URL(request.url, "http://localhost");
+          const experimentId = url.searchParams.has("experiment")
+            ? Number(url.searchParams.get("experiment")) : connectivityState.experimentId;
+          if (!currentOutput || !experimentId || !Number.isSafeInteger(experimentId) || experimentId <= 0) {
             response.statusCode = 404;
             response.end("Connectivité native indisponible");
             return;
           }
-          const pathname = new URL(request.url, "http://localhost").pathname;
+          const pathname = url.pathname;
           const asset = pathname.slice("/api/connectivity/native-viewer/".length);
           const valid = /^overlays\/(projection|injection)\/(coronal|sagittal|axial)\/(coronal|sagittal|axial)-\d{3,4}\.webp$/.test(asset)
             || /^volumes\/(projection|injection)\.bin$/.test(asset);
-          const path = resolve(currentOutput, "..", "registration", "native-connectivity", String(connectivityState.experimentId), "web", asset);
+          const path = resolve(currentOutput, "..", "registration", "native-connectivity", String(experimentId), "web", asset);
           if (!valid || !existsSync(path)) {
             response.statusCode = 404;
             response.end("Connectivité native indisponible");

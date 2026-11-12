@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 
 import type { ConnectivityInspection } from "./InteractiveSlice";
 import {
@@ -13,10 +13,11 @@ import type { ConnectivityState } from "./data";
 import type { ModalityPalette } from "./modalityVolume";
 
 type SliceToolbarProps = {
+  library?: ReactNode;
   activePlane: SlicePlane;
   connectivityAvailable: boolean;
+  connectivityControlsVisible: boolean;
   connectivityOpacity: number;
-  connectivitySettingsOpen: boolean;
   connectivityState: ConnectivityState;
   connectivityThreshold: number;
   connectivityVisible: boolean;
@@ -35,7 +36,6 @@ type SliceToolbarProps = {
   subjectAnnotationsAvailable: boolean;
   viewerSource: "allen" | "subject";
   onConnectivityOpacityChange: (value: number) => void;
-  onConnectivitySettingsToggle: () => void;
   onConnectivityThresholdChange: (value: number) => void;
   onConnectivityVisibleChange: (visible: boolean) => void;
   onInjectionVisibleChange: (visible: boolean) => void;
@@ -54,10 +54,11 @@ type SliceToolbarProps = {
 };
 
 function SliceToolbarComponent({
+  library,
   activePlane,
   connectivityAvailable,
+  connectivityControlsVisible,
   connectivityOpacity,
-  connectivitySettingsOpen,
   connectivityState,
   connectivityThreshold,
   connectivityVisible,
@@ -76,7 +77,6 @@ function SliceToolbarComponent({
   subjectAnnotationsAvailable,
   viewerSource,
   onConnectivityOpacityChange,
-  onConnectivitySettingsToggle,
   onConnectivityThresholdChange,
   onConnectivityVisibleChange,
   onInjectionVisibleChange,
@@ -95,14 +95,16 @@ function SliceToolbarComponent({
 }: SliceToolbarProps) {
   return (
     <div className="slice-toolbar-stack">
+      {library}
       <div className="slice-command-bar" aria-label="Outils de la coupe">
         {connectivityAvailable && (
           <div className="connectivity-settings">
             <button
               type="button"
               className={`connectivity-toggle${connectivityVisible ? " is-active" : ""}`}
-              aria-expanded={connectivitySettingsOpen}
-              onClick={onConnectivitySettingsToggle}
+              aria-pressed={connectivityVisible}
+              title={connectivityVisible ? "Masquer la connectivité" : "Afficher la connectivité"}
+              onClick={() => onConnectivityVisibleChange(!connectivityVisible)}
             >
               <span aria-hidden="true" />
               Connectivité {connectivityState.experimentId}
@@ -170,7 +172,7 @@ function SliceToolbarComponent({
           </div>
         )}
       </div>
-      {connectivitySettingsOpen && connectivityAvailable && (
+      {connectivityAvailable && connectivityControlsVisible && (
         <div className="connectivity-control-strip">
           <div className="connectivity-control-summary">
             <div className="connectivity-control-heading">

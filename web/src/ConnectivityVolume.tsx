@@ -3,16 +3,14 @@ import { useThree } from "@react-three/fiber";
 import {
   BackSide,
   Color,
-  Data3DTexture,
+  type Data3DTexture,
   GLSL3,
-  LinearFilter,
   Plane,
-  RedFormat,
   ShaderMaterial,
-  UnsignedByteType,
   Vector3,
   Vector4,
 } from "three";
+import { retainConnectivityTexture } from "./connectivityVolumeCache";
 
 type ConnectivityVolumeProps = {
   center?: [number, number, number];
@@ -42,7 +40,10 @@ export default function ConnectivityVolume({
   url,
 }: ConnectivityVolumeProps) {
   const invalidate = useThree((state) => state.invalidate);
-  const [texture, setTexture] = useState<Data3DTexture | null>(null);
+  const [loaded, setLoaded] = useState<{ key: string; texture: Data3DTexture } | null>(null);
+  const [width, height, depth] = shape;
+  const textureKey = `${url}|${width}x${height}x${depth}`;
+  const texture = loaded?.key === textureKey ? loaded.texture : null;
   const spacing = useMemo(
     () => typeof spacingMm === "number"
       ? new Vector3(spacingMm, spacingMm, spacingMm)
@@ -55,38 +56,22 @@ export default function ConnectivityVolume({
   );
 
   useEffect(() => {
-    const controller = new AbortController();
-    setTexture(null);
-    void fetch(url, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error("Volume de connectivité indisponible");
-        return response.arrayBuffer();
-      })
-      .then((buffer) => {
-        const expectedLength = shape[0] * shape[1] * shape[2];
-        const data = new Uint8Array(buffer);
-        if (data.length !== expectedLength) {
-          throw new Error("Dimensions du volume de connectivité incompatibles");
-        }
-        const nextTexture = new Data3DTexture(data, shape[0], shape[1], shape[2]);
-        nextTexture.format = RedFormat;
-        nextTexture.type = UnsignedByteType;
-        nextTexture.minFilter = LinearFilter;
-        nextTexture.magFilter = LinearFilter;
-        nextTexture.unpackAlignment = 1;
-        nextTexture.needsUpdate = true;
-        setTexture(nextTexture);
+    let cancelled = false;
+    const retained = retainConnectivityTexture(url, [width, height, depth]);
+    void retained.promise
+      .then((nextTexture) => {
+        if (cancelled) return;
+        setLoaded({ key: textureKey, texture: nextTexture });
         invalidate();
       })
-      .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setTexture(null);
-        }
+      .catch(() => {
+        if (!cancelled) setLoaded(null);
       });
-    return () => controller.abort();
-  }, [invalidate, shape, url]);
-
-  useEffect(() => () => texture?.dispose(), [texture]);
+    return () => {
+      cancelled = true;
+      retained.release();
+    };
+  }, [invalidate, width, height, depth, textureKey, url]);
 
   const uniforms = useMemo(() => ({
     boxSize: { value: size },

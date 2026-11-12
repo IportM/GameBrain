@@ -5,6 +5,7 @@ region measurements and Allen connectivity without the private `data-source` fol
 
 - `structures.json`: structure catalogue from BrainGlobe `allen_mouse_25um_v1.2`.
 - `annotation_50.nrrd`: Allen CCF 2017 annotations at 50 micrometers, used to mask connectivity.
+- `connectivity_experiments.json`: public Allen injection-site catalogue for immediate, offline point exploration.
 - `registration_allen_ccf2017_*.nii.gz`: template and labels in the registration grid.
 - `site_allen_ccf2017_*.nii.gz`: template and labels in the site's atlas grid.
 - `antsxnet/`: previously bundled mouse brain extraction model and templates.
@@ -14,3 +15,7 @@ connectivity annotation and extraction model checksums and Python imports.
 
 The developer-only atlas regeneration scripts can still require source volumes
 in `data-source`. Running them is not part of installing or using the site.
+
+To update the bundled catalogue, run `pnpm run update:experiments` from `web`.
+The server refreshes old catalogues in the background and keeps that runtime copy
+in the ignored `registration/cache` folder. No projection volumes are included in the catalogue.

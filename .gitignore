@@ -25,4 +25,5 @@ registration/results/
 registration/uploads/
 registration/imports/
 registration/connectivity/
+registration/cache/
 EXPORT_BIDS_*/

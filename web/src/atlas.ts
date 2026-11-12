@@ -1,5 +1,5 @@
 export const ATLAS_SIZE_MM: [number, number, number] = [13.2, 8, 11.4];
-const MESH_CENTER_MM: [number, number, number] = [7.50001, 3.394489, 5.687737];
+export const MESH_CENTER_MM: [number, number, number] = [7.50001, 3.394489, 5.687737];
 
 export const ATLAS_VOLUME_CENTER_MM: [number, number, number] = [
   ATLAS_SIZE_MM[0] / 2 - MESH_CENTER_MM[0],

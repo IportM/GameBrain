@@ -58,6 +58,7 @@ export type ConnectivityState = {
   viewerManifest: ConnectivityManifest | null;
   metadata: ConnectivitySearchResult | null;
   nativeStatus: "idle" | "running" | "completed" | "failed";
+  nativeFinishedAt: string | null;
   nativeMessage: string;
   nativeLogTail: string[];
   hasNativeViewerAssets: boolean;
@@ -74,6 +75,13 @@ export type ConnectivitySearchResponse = {
   message: string;
   results: ConnectivitySearchResult[];
   total: number;
+};
+
+export type DownloadedConnectivityExperiment = {
+  id: number;
+  finishedAt: string;
+  metadata: ConnectivitySearchResult | null;
+  nativeAvailable: boolean;
 };
 
 export type ImportedPlane = {
@@ -162,6 +170,7 @@ export const INITIAL_CONNECTIVITY_STATE: ConnectivityState = {
   viewerManifest: null,
   metadata: null,
   nativeStatus: "idle",
+  nativeFinishedAt: null,
   nativeMessage: "Projetez la carte dans l'image importée",
   nativeLogTail: [],
   hasNativeViewerAssets: false,

@@ -6,6 +6,8 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "doctor": "node scripts/setup.mjs --check",
+    "test:connectivity": "node --experimental-strip-types --test tests/connectivity-*.test.mjs",
+    "update:experiments": "node --experimental-strip-types scripts/update-experiments.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build"
   },

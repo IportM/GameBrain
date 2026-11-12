@@ -11,6 +11,10 @@ import {
 
 import InteractiveSlice, { type ConnectivityInspection } from "./InteractiveSlice";
 import RegionTooltip from "./RegionTooltip";
+import ExperimentExplorerPanel from "./ExperimentExplorerPanel";
+import ConnectivityLibrary from "./ConnectivityLibrary";
+import { clearConnectivitySliceCache } from "./connectivitySliceCache";
+import type { DownloadedConnectivityExperiment } from "./data";
 import { ConnectivityReadout, SliceToolbar } from "./SliceToolbar";
 import type { ViewerSource } from "./AtlasScene";
 import {
@@ -136,6 +140,17 @@ export default function App() {
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [allenRegistrationOpen, setAllenRegistrationOpen] = useState(false);
   const [connectivityOpen, setConnectivityOpen] = useState(false);
+  const [downloadedConnectivity, setDownloadedConnectivity] = useState<DownloadedConnectivityExperiment[]>([]);
+  const [connectivityLibraryError, setConnectivityLibraryError] = useState<string | null>(null);
+  const [experimentExplorerEnabled, setExperimentExplorerEnabled] = useState(false);
+  const [experimentCatalogue, setExperimentCatalogue] = useState<ConnectivitySearchResult[]>([]);
+  const [experimentCatalogueLoading, setExperimentCatalogueLoading] = useState(false);
+  const [experimentCatalogueError, setExperimentCatalogueError] = useState<string | null>(null);
+  const [experimentCatalogueRetry, setExperimentCatalogueRetry] = useState(0);
+  const lastExperimentCatalogueLoad = useRef({ time: 0, retry: -1 });
+  const [experimentFilterRegion, setExperimentFilterRegion] = useState(false);
+  const [hoveredExperiment, setHoveredExperiment] = useState<ConnectivitySearchResult | null>(null);
+  const [selectedExperiment, setSelectedExperiment] = useState<ConnectivitySearchResult | null>(null);
   const [modalitiesOpen, setModalitiesOpen] = useState(false);
   const [connectivityExperimentId, setConnectivityExperimentId] = useState("100140756");
   const [connectivityLoadMode, setConnectivityLoadMode] = useState<"region" | "id">("region");
@@ -148,7 +163,6 @@ export default function App() {
   const [connectivitySearchResults, setConnectivitySearchResults] =
     useState<ConnectivitySearchResult[]>([]);
   const [connectivityVisible, setConnectivityVisible] = useState(false);
-  const [connectivitySettingsOpen, setConnectivitySettingsOpen] = useState(false);
   const [projectionVisible, setProjectionVisible] = useState(true);
   const [injectionVisible, setInjectionVisible] = useState(true);
   const [connectivityOpacity, setConnectivityOpacity] = useState(0.85);
@@ -187,6 +201,24 @@ export default function App() {
   const [connectivityState, setConnectivityState] =
     useState<ConnectivityState>(INITIAL_CONNECTIVITY_STATE);
   const [viewerSource, setViewerSource] = useState<ViewerSource>("allen");
+  const experimentExplorerActive = experimentExplorerEnabled && viewerSource === "allen";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/connectivity/library", { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as { results?: DownloadedConnectivityExperiment[] };
+        if (!response.ok || !Array.isArray(payload.results)) throw new Error("Liste des expériences indisponible");
+        if (!controller.signal.aborted) {
+          setDownloadedConnectivity(payload.results);
+          setConnectivityLibraryError(null);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setConnectivityLibraryError("Liste des expériences indisponible");
+      });
+    return () => controller.abort();
+  }, [connectivityState.finishedAt, connectivityState.nativeStatus, registrationState.finishedAt, connectivityOpen]);
   const [showAllenRegionColors, setShowAllenRegionColors] = useState(true);
   const [showBrainOnly, setShowBrainOnly] = useState(true);
   const [showImportedMask, setShowImportedMask] = useState(true);
@@ -230,10 +262,10 @@ export default function App() {
   }, []);
 
   const hasRegionSelection = selectedRegionId !== null || selectedDetailedRegionId !== null;
-  const activeRegionId = hasRegionSelection || connectivityVisible
+  const activeRegionId = hasRegionSelection
     ? selectedRegionId
     : menuHoveredRegionId ?? hoveredRegionId;
-  const sceneHoveredRegionId = connectivityVisible || hasRegionSelection
+  const sceneHoveredRegionId = hasRegionSelection
     ? selectedRegionId
     : slice3DMode === "clip"
       ? menuHoveredRegionId ?? hoveredRegionId
@@ -256,7 +288,7 @@ export default function App() {
     ),
     [detailedAnnotations],
   );
-  const activeDetailedRegionId = hasRegionSelection || connectivityVisible
+  const activeDetailedRegionId = hasRegionSelection
     ? selectedDetailedRegionId
     : hoveredDetailedRegionId ?? selectedDetailedRegionId;
   const activeDetailedRegion = activeDetailedRegionId === null
@@ -273,6 +305,83 @@ export default function App() {
   const selectedDetailedRegion = selectedDetailedRegionId === null
     ? null
     : detailedStructureById.get(selectedDetailedRegionId) ?? null;
+  const experimentFilterId = selectedDetailedRegionId ?? selectedRegionId;
+  const coloredExperimentCatalogue = useMemo(() => experimentCatalogue.map((experiment) => {
+    const id = experiment.primaryStructure.id;
+    const structure = id === null ? undefined : detailedStructureById.get(id);
+    return {
+      ...experiment,
+      primaryStructure: {
+        ...experiment.primaryStructure,
+        color: structure?.color ?? experiment.primaryStructure.color,
+      },
+    };
+  }), [experimentCatalogue, detailedStructureById]);
+  const visibleExperiments = useMemo(() => {
+    if (!experimentFilterRegion) return coloredExperimentCatalogue;
+    if (experimentFilterId === null) return [];
+    return coloredExperimentCatalogue.filter((experiment) => (
+      [experiment.primaryStructure.id, ...experiment.injectionStructures.map((structure) => structure.id)]
+        .some((id) => id === experimentFilterId || (
+          id !== null && detailedStructureById.get(id)?.path.includes(experimentFilterId)
+        ))
+    ));
+  }, [coloredExperimentCatalogue, experimentFilterRegion, experimentFilterId, detailedStructureById]);
+
+  useEffect(() => {
+    setExperimentFilterRegion(experimentFilterId !== null);
+    if (experimentExplorerActive && experimentFilterId === null) {
+      setSelectedExperiment(null);
+      setHoveredExperiment(null);
+      setConnectivityVisible(false);
+    }
+  }, [experimentFilterId, experimentExplorerActive]);
+
+  useEffect(() => {
+    setHoveredExperiment(null);
+    setSelectedExperiment((current) => current && visibleExperiments.some((item) => item.id === current.id)
+      ? current : null);
+  }, [visibleExperiments, experimentExplorerActive]);
+
+  useEffect(() => {
+    if (experimentExplorerActive && connectivityVisible) {
+      setExperimentExplorerEnabled(false);
+      setHoveredExperiment(null);
+    }
+  }, [experimentExplorerActive, connectivityVisible]);
+
+  useEffect(() => {
+    if (!experimentExplorerActive) return;
+    if (experimentCatalogue.length > 0
+      && lastExperimentCatalogueLoad.current.retry === experimentCatalogueRetry
+      && Date.now() - lastExperimentCatalogueLoad.current.time < 10 * 60 * 1000) {
+      setExperimentCatalogueLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setExperimentCatalogueLoading(true);
+    setExperimentCatalogueError(null);
+    void fetch("/api/connectivity/experiments", { signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as { results?: ConnectivitySearchResult[]; message?: string };
+        if (!response.ok || !Array.isArray(payload.results)) {
+          throw new Error(payload.message ?? "Catalogue Allen indisponible");
+        }
+        if (!controller.signal.aborted) {
+          lastExperimentCatalogueLoad.current = { time: Date.now(), retry: experimentCatalogueRetry };
+          setExperimentCatalogue(payload.results);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setExperimentCatalogueError(error instanceof Error ? error.message : "Catalogue Allen indisponible");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setExperimentCatalogueLoading(false);
+      });
+    return () => controller.abort();
+  }, [experimentExplorerActive, experimentCatalogueRetry]);
   const displayedDetailedRegions = useMemo(
     () => [...displayedDetailedRegionIds]
       .filter((regionId) => !MAJOR_REGION_IDS.has(regionId))
@@ -342,10 +451,10 @@ export default function App() {
       setNativeSceneDetailedRegionId(null);
       return;
     }
-    const targetId = hasRegionSelection || connectivityVisible
+    const targetId = hasRegionSelection
       ? selectedDetailedRegionId
       : hoveredDetailedRegionId ?? selectedDetailedRegionId;
-    if (targetId === null || hasRegionSelection || connectivityVisible || hoveredDetailedRegionId === null) {
+    if (targetId === null || hasRegionSelection || hoveredDetailedRegionId === null) {
       setNativeSceneDetailedRegionId(targetId);
       return;
     }
@@ -353,7 +462,7 @@ export default function App() {
       setNativeSceneDetailedRegionId(targetId);
     }, 140);
     return () => window.clearTimeout(timer);
-  }, [hasRegionSelection, connectivityVisible, hoveredDetailedRegionId, selectedDetailedRegionId, viewerSource]);
+  }, [hasRegionSelection, hoveredDetailedRegionId, selectedDetailedRegionId, viewerSource]);
   const sliceAnnotationsEnabled =
     viewerSource === "allen" || (viewerSource === "subject" && subjectAnnotationsAvailable);
   const sliceIndexes = sliceIndexesBySource[viewerSource];
@@ -441,16 +550,16 @@ export default function App() {
 
   const hoverRegionFromViewer = useCallback((regionId: number | null) => {
     if (hasRegionSelection) return;
-    if (!connectivityVisible && regionId !== null) {
+    if (regionId !== null) {
       setLastInspectedRegionId(regionId);
     }
-    setHoveredRegionId(connectivityVisible ? null : regionId);
-  }, [connectivityVisible, hasRegionSelection]);
+    setHoveredRegionId(regionId);
+  }, [hasRegionSelection]);
 
   const hoverDetailedRegion = useCallback((regionId: number | null) => {
     if (hasRegionSelection) return;
-    setHoveredDetailedRegionId(connectivityVisible ? null : regionId);
-  }, [connectivityVisible, hasRegionSelection]);
+    setHoveredDetailedRegionId(regionId);
+  }, [hasRegionSelection]);
 
   const selectDetailedRegion = useCallback((regionId: number | null) => {
     const next = selectedDetailedRegionId === regionId ? null : regionId;
@@ -508,12 +617,12 @@ export default function App() {
       setMenuHoveredRegionId(null);
       return;
     }
-    if (connectivityVisible || hasRegionSelection) {
+    if (hasRegionSelection) {
       return;
     }
     setHoveredDetailedRegionId(structure.id);
     setMenuHoveredRegionId(majorRegionIdFor(structure));
-  }, [connectivityVisible, hasRegionSelection]);
+  }, [hasRegionSelection]);
 
   const inspectConnectivity = useCallback((inspection: ConnectivityInspection | null) => {
     if (connectivityPinnedInspection !== null) {
@@ -539,10 +648,6 @@ export default function App() {
 
   const clearConnectivityInspection = useCallback(() => {
     setConnectivityPinnedInspection(null);
-  }, []);
-
-  const toggleConnectivitySettings = useCallback(() => {
-    setConnectivitySettingsOpen((current) => !current);
   }, []);
 
   const changeActivePlane = useCallback((plane: SlicePlane) => {
@@ -727,7 +832,6 @@ export default function App() {
     setClipDirection("positive");
     setBrainOpacity(0.35);
     setConnectivityVisible(false);
-    setConnectivitySettingsOpen(false);
     setProjectionVisible(true);
     setInjectionVisible(true);
     setConnectivityOpacity(0.85);
@@ -742,6 +846,10 @@ export default function App() {
     setRegistrationOpen(false);
     setAllenRegistrationOpen(false);
     setConnectivityOpen(false);
+    setExperimentExplorerEnabled(false);
+    setSelectedExperiment(null);
+    setHoveredExperiment(null);
+    setExperimentFilterRegion(false);
     sliceWheelDelta.current = 0;
     resetRegionDisplay();
     setSceneResetKey((current) => current + 1);
@@ -912,6 +1020,8 @@ export default function App() {
               activePlane,
               index,
               connectivityState.finishedAt,
+              connectivityState.experimentId,
+              connectivityState.nativeFinishedAt,
             ));
           }
           if (injectionVisible) {
@@ -920,6 +1030,8 @@ export default function App() {
               activePlane,
               index,
               connectivityState.finishedAt,
+              connectivityState.experimentId,
+              connectivityState.nativeFinishedAt,
             ));
           }
         }
@@ -934,6 +1046,7 @@ export default function App() {
     activeSliceCount,
     allenRegistrationState.finishedAt,
     connectivityState.finishedAt,
+    connectivityState.nativeFinishedAt,
     connectivityState.hasNativeViewerAssets,
     connectivityState.viewerManifest,
     connectivityVisible,
@@ -1417,6 +1530,13 @@ export default function App() {
       if (!response.ok) {
         throw new Error(nextState.message);
       }
+      if (nextState.status === "completed" && nextState.hasViewerAssets) {
+        setExperimentExplorerEnabled(false);
+        setHoveredExperiment(null);
+        setConnectivityVisible(true);
+        setViewerSource(viewerSource === "subject" && nextState.hasNativeViewerAssets ? "subject" : "allen");
+        setConnectivityOpen(false);
+      }
     } catch (error) {
       setConnectivityState((current) => ({
         ...current,
@@ -1545,6 +1665,7 @@ export default function App() {
       const response = await fetch("/api/session", { method: "DELETE" });
       const payload = await response.json() as { ok: boolean; message: string };
       if (!response.ok || !payload.ok) throw new Error(payload.message);
+      clearConnectivitySliceCache();
       setRegistrationState(INITIAL_REGISTRATION_STATE);
       setAllenRegistrationState(INITIAL_ALLEN_REGISTRATION_STATE);
       setConnectivityState(INITIAL_CONNECTIVITY_STATE);
@@ -2313,6 +2434,24 @@ export default function App() {
               )}
             </div>
             <footer className="registration-dialog-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setViewerSource("allen");
+                  setSlice3DMode("none");
+                  setConnectivityVisible(false);
+                  setSelectedExperiment(null);
+                  setHoveredExperiment(null);
+                  setConnectivityPinnedInspection(null);
+                  setConnectivityHoverInspection(null);
+                  setTooltipRegionId(null);
+                  setExperimentExplorerEnabled(true);
+                  setExperimentFilterRegion(hasRegionSelection);
+                  setConnectivityOpen(false);
+                }}
+              >
+                Explorer les injections en 3D
+              </button>
               {connectivityState.status === "running" && (
                 <button
                   className="is-danger"
@@ -2438,7 +2577,7 @@ export default function App() {
                       max="100"
                       step="5"
                       value={Math.round(brainOpacity * 100)}
-                      disabled={slice3DMode !== "clip" && selectedRegionId === null}
+                      disabled={!experimentExplorerActive && slice3DMode !== "clip" && selectedRegionId === null}
                       onChange={(event) => setBrainOpacity(Number(event.currentTarget.value) / 100)}
                     />
                   </div>
@@ -2562,7 +2701,44 @@ export default function App() {
             )}
           </aside>
           <div className={`viewer-content${viewerSource === "subject" && activeModality && measuredRegionId !== null ? " has-measurements" : ""}`}>
-            <div className="viewer-stage" onPointerLeave={() => setTooltipRegionId(null)}>
+            <div className="viewer-stage" onPointerLeave={() => {
+              setTooltipRegionId(null);
+              setHoveredExperiment(null);
+            }}>
+            {experimentExplorerActive && (
+              <ExperimentExplorerPanel
+                count={visibleExperiments.length}
+                total={experimentCatalogue.length}
+                loading={experimentCatalogueLoading}
+                error={experimentCatalogueError}
+                filtered={experimentFilterRegion}
+                regionName={selectedDetailedRegion?.name ?? selectedRegion?.name ?? null}
+                selected={selectedExperiment}
+                busy={connectivityState.status === "running" || connectivityState.nativeStatus === "running"}
+                onFilter={(filtered) => {
+                  setExperimentFilterRegion(filtered);
+                  if (!filtered) {
+                    setSelectedExperiment(null);
+                    setHoveredExperiment(null);
+                    setConnectivityVisible(false);
+                    setConnectivityPinnedInspection(null);
+                    setConnectivityHoverInspection(null);
+                  }
+                }}
+                onClose={() => {
+                  setExperimentExplorerEnabled(false);
+                  setHoveredExperiment(null);
+                }}
+                onRetry={() => setExperimentCatalogueRetry((value) => value + 1)}
+                onLoad={() => {
+                  if (!selectedExperiment) return;
+                  setExperimentExplorerEnabled(false);
+                  setHoveredExperiment(null);
+                  setConnectivityOpen(true);
+                  void startConnectivity(selectedExperiment.id, selectedExperiment);
+                }}
+              />
+            )}
             {sceneReady ? (
             <Suspense
               fallback={
@@ -2573,11 +2749,18 @@ export default function App() {
             >
               <AtlasScene
                 key={sceneResetKey}
+                experimentExplorerActive={experimentExplorerActive}
+                experiments={visibleExperiments}
+                hoveredExperimentId={hoveredExperiment?.id ?? null}
+                selectedExperimentId={selectedExperiment?.id ?? null}
+                onHoverExperiment={setHoveredExperiment}
+                onSelectExperiment={setSelectedExperiment}
                 activePlane={activePlane}
                 annotationRevision={allenRegistrationState.finishedAt}
                 baseOpacity={
                   slice3DMode === "clip" ||
                   selectedRegionId !== null ||
+                  experimentExplorerActive ||
                   connectivityVisible
                     ? brainOpacity
                     : 1
@@ -2600,9 +2783,9 @@ export default function App() {
                 connectivityInjectionUrl={
                   connectivityVisible && injectionVisible
                     ? viewerSource === "allen" && connectivityState.hasViewerAssets
-                      ? connectivityVolumeUrl("injection", connectivityState.finishedAt)
+                      ? connectivityVolumeUrl("injection", connectivityState.finishedAt, connectivityState.experimentId)
                       : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
-                        ? nativeConnectivityVolumeUrl("injection", connectivityState.finishedAt)
+                        ? nativeConnectivityVolumeUrl("injection", connectivityState.finishedAt, connectivityState.experimentId, connectivityState.nativeFinishedAt)
                         : undefined
                     : undefined
                 }
@@ -2610,9 +2793,9 @@ export default function App() {
                 connectivityProjectionUrl={
                   connectivityVisible && projectionVisible
                     ? viewerSource === "allen" && connectivityState.hasViewerAssets
-                      ? connectivityVolumeUrl("projection", connectivityState.finishedAt)
+                      ? connectivityVolumeUrl("projection", connectivityState.finishedAt, connectivityState.experimentId)
                       : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
-                        ? nativeConnectivityVolumeUrl("projection", connectivityState.finishedAt)
+                        ? nativeConnectivityVolumeUrl("projection", connectivityState.finishedAt, connectivityState.experimentId, connectivityState.nativeFinishedAt)
                         : undefined
                     : undefined
                 }
@@ -2741,10 +2924,23 @@ export default function App() {
             </div>
           </header>
           <SliceToolbar
+            library={
+              <ConnectivityLibrary
+                experiments={downloadedConnectivity}
+                activeId={connectivityState.experimentId}
+                disabled={connectivityState.status === "running" || connectivityState.nativeStatus === "running"}
+                error={connectivityLibraryError}
+                onSelect={(id) => {
+                  const metadata = downloadedConnectivity.find((entry) => entry.id === id)?.metadata
+                    ?? experimentCatalogue.find((entry) => entry.id === id);
+                  void startConnectivity(id, metadata ?? undefined);
+                }}
+              />
+            }
             activePlane={activePlane}
             connectivityAvailable={connectivityAvailableForSource}
+            connectivityControlsVisible={!experimentExplorerActive}
             connectivityOpacity={connectivityOpacity}
-            connectivitySettingsOpen={connectivitySettingsOpen}
             connectivityState={connectivityState}
             connectivityThreshold={connectivityThreshold}
             connectivityVisible={connectivityVisible}
@@ -2763,7 +2959,6 @@ export default function App() {
             subjectAnnotationsAvailable={subjectAnnotationsAvailable}
             viewerSource={viewerSource}
             onConnectivityOpacityChange={setConnectivityOpacity}
-            onConnectivitySettingsToggle={toggleConnectivitySettings}
             onConnectivityThresholdChange={setConnectivityThreshold}
             onConnectivityVisibleChange={setConnectivityVisible}
             onInjectionVisibleChange={setInjectionVisible}
@@ -2816,7 +3011,7 @@ export default function App() {
                       connectivityState.finishedAt,
                     )
                     : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
-                      ? nativeConnectivityOverlayUrl("projection", activePlane, sliceIndex, connectivityState.finishedAt)
+                      ? nativeConnectivityOverlayUrl("projection", activePlane, sliceIndex, connectivityState.finishedAt, connectivityState.experimentId, connectivityState.nativeFinishedAt)
                       : undefined
                   : undefined
               }
@@ -2832,7 +3027,7 @@ export default function App() {
                       connectivityState.finishedAt,
                     )
                     : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
-                      ? nativeConnectivityOverlayUrl("injection", activePlane, sliceIndex, connectivityState.finishedAt)
+                      ? nativeConnectivityOverlayUrl("injection", activePlane, sliceIndex, connectivityState.finishedAt, connectivityState.experimentId, connectivityState.nativeFinishedAt)
                       : undefined
                   : undefined
               }
@@ -2924,7 +3119,12 @@ export default function App() {
           </div>
         </section>
       </div>
-      <RegionTooltip name={tooltipRegion?.name ?? null} acronym={tooltipRegion?.acronym} />
+      <RegionTooltip
+        name={hoveredExperiment
+          ? `Experiment #${hoveredExperiment.id} / ${hoveredExperiment.primaryStructure.name || hoveredExperiment.primaryStructure.acronym}`
+          : tooltipRegion?.name ?? null}
+        acronym={hoveredExperiment ? undefined : tooltipRegion?.acronym}
+      />
     </main>
   );
 }

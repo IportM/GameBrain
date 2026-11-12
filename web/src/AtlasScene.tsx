@@ -2,6 +2,7 @@ import {
   memo,
   Suspense,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   type ComponentRef,
@@ -12,6 +13,8 @@ import { Environment, OrbitControls, useGLTF } from "@react-three/drei";
 import { MOUSE, Plane, SRGBColorSpace, Vector3 } from "three";
 
 import ConnectivityVolume from "./ConnectivityVolume";
+import ExperimentMarkers from "./ExperimentMarkers";
+import { clearConnectivityVolumeCache } from "./connectivityVolumeCache";
 import {
   AtlasRegion as AtlasRegionMesh,
   DetailedAtlasRegion as DetailedAtlasRegionMesh,
@@ -26,7 +29,7 @@ import {
   LayeredAtlasRenderer as LayeredAtlasRendererView,
   ResponsiveCamera as ResponsiveCameraView,
 } from "./SceneSupport";
-import type { ImportedManifest } from "./data";
+import type { ConnectivitySearchResult, ImportedManifest } from "./data";
 import {
   REGION_BY_ID,
   REGIONS,
@@ -107,6 +110,12 @@ function AtlasScene({
   connectivityVolumeSpacingMm,
   connectivityVolumeShape,
   detailedRegion,
+  experimentExplorerActive,
+  experiments,
+  hoveredExperimentId,
+  selectedExperimentId,
+  onHoverExperiment,
+  onSelectExperiment,
   hoveredRegionId,
   importedManifest,
   isolatedRegionId,
@@ -141,6 +150,12 @@ function AtlasScene({
   connectivityVolumeSpacingMm: number | [number, number, number];
   connectivityVolumeShape?: [number, number, number];
   detailedRegion: DetailedAnnotationStructure | null;
+  experimentExplorerActive: boolean;
+  experiments: ConnectivitySearchResult[];
+  hoveredExperimentId: number | null;
+  selectedExperimentId: number | null;
+  onHoverExperiment: (experiment: ConnectivitySearchResult | null) => void;
+  onSelectExperiment: (experiment: ConnectivitySearchResult) => void;
   hoveredRegionId: number | null;
   importedManifest: ImportedManifest | null;
   isolatedRegionId: number | null;
@@ -165,6 +180,11 @@ function AtlasScene({
   const subjectHoverTimer = useRef<number | null>(null);
   const subjectPickSequence = useRef(0);
   const pointerGesture = useRef({ x: 0, y: 0, button: -1, dragged: true });
+  const pressedExperiment = useRef<ConnectivitySearchResult | null>(null);
+  useEffect(() => () => clearConnectivityVolumeCache(), []);
+  useLayoutEffect(() => {
+    clearConnectivityVolumeCache("/api/connectivity/native-viewer/");
+  }, [subjectRevision]);
   const clippingPlane = useMemo(() => {
     const plane = new Plane();
     const offset = importedManifest
@@ -196,7 +216,7 @@ function AtlasScene({
     slice3DMode === "clip" || selectedRegionId !== null || detailedRegion !== null;
   const pointerInteractionLocked = slice3DMode === "clip" || selectionLocked;
   const depthContextActive =
-    contextActive || connectivityProjectionUrl !== undefined || connectivityInjectionUrl !== undefined || connectivityInjectionCenter !== undefined;
+    contextActive || experimentExplorerActive || connectivityProjectionUrl !== undefined || connectivityInjectionUrl !== undefined || connectivityInjectionCenter !== undefined;
   const sceneRegionId = detailedRegion && !detailedRegionIsMajor
     ? null
     : contextActive
@@ -252,6 +272,7 @@ function AtlasScene({
   }, []);
 
   const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
+    if (experimentExplorerActive) return;
     if (event.buttons !== 0) {
       clearPointerHover();
       return;
@@ -278,6 +299,7 @@ function AtlasScene({
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
+    if (experimentExplorerActive) return;
     if (pointerGesture.current.dragged || pointerGesture.current.button !== 0) return;
     if (source === "subject" && subjectRegionsAvailable) {
       const pick = subjectPickFromEvent(event);
@@ -297,6 +319,7 @@ function AtlasScene({
     if (subjectHoverTimer.current !== null) window.clearTimeout(subjectHoverTimer.current);
     subjectHoverTimer.current = null;
     subjectPickSequence.current += 1;
+    onHoverExperiment(null);
     onInspectRegion(null);
     onHoverDetailedRegion(null);
     onHoverRegion(null);
@@ -308,12 +331,14 @@ function AtlasScene({
       dpr={connectivityProjectionUrl ? 1 : [1, 1.5]}
       frameloop="demand"
       gl={{ antialias: true, outputColorSpace: SRGBColorSpace }}
-      onCreated={({ gl }) => {
+      onCreated={({ gl, raycaster }) => {
         gl.localClippingEnabled = true;
+        raycaster.layers.enable(1);
       }}
       onContextMenu={(event) => event.preventDefault()}
       onPointerDownCapture={(event) => {
-        clearPointerHover();
+        pressedExperiment.current = null;
+        if (!experimentExplorerActive) clearPointerHover();
         pointerGesture.current = {
           x: event.clientX,
           y: event.clientY,
@@ -325,6 +350,7 @@ function AtlasScene({
         const gesture = pointerGesture.current;
         if (Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 4) {
           gesture.dragged = true;
+          if (event.buttons !== 0) onHoverExperiment(null);
         }
       }}
       onPointerUpCapture={(event) => {
@@ -332,9 +358,19 @@ function AtlasScene({
         if (Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 4) {
           gesture.dragged = true;
         }
+        const experiment = pressedExperiment.current;
+        pressedExperiment.current = null;
+        if (experimentExplorerActive && experiment && event.button === 0 &&
+          gesture.button === 0 && !gesture.dragged) {
+          onSelectExperiment(experiment);
+        }
       }}
-      onPointerCancelCapture={() => { pointerGesture.current.dragged = true; }}
+      onPointerCancelCapture={() => {
+        pointerGesture.current.dragged = true;
+        pressedExperiment.current = null;
+      }}
       onPointerMissed={() => {
+        if (experimentExplorerActive) return;
         if (pointerGesture.current.dragged || pointerGesture.current.button !== 0) return;
         onSelectDetailedRegion(null);
         onSelectRegion(null);
@@ -345,6 +381,7 @@ function AtlasScene({
       <ResponsiveCameraView />
       <LayeredAtlasRendererView
         overlayVisible={
+          experimentExplorerActive ||
           selectedRegionId !== null ||
           detailedRegion !== null ||
           persistentDetailedRegions.length > 0 ||
@@ -362,6 +399,15 @@ function AtlasScene({
       <directionalLight color="#7ea6d8" intensity={0.9} position={[-8, -3, -6]} />
       <Suspense fallback={null}>
         <group scale={[1, -1, 1]}>
+          {experimentExplorerActive && (
+            <ExperimentMarkers
+              experiments={experiments}
+              hoveredId={hoveredExperimentId}
+              selectedId={selectedExperimentId}
+              onHover={onHoverExperiment}
+              onPress={(experiment) => { pressedExperiment.current = experiment; }}
+            />
+          )}
           {connectivityProjectionUrl && connectivityVolumeShape && (
             <ConnectivityVolume
               center={connectivityVolumeCenter}

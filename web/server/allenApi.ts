@@ -1,3 +1,7 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 export type AllenConnectivityExperiment = {
   id: number;
   specimenName: string;
@@ -117,9 +121,12 @@ export function normalizeConnectivityExperiment(
           name: "",
         })).filter((structure) => Number.isSafeInteger(structure.id))
       : [];
-  const coordinates = Array.isArray(item["injection-coordinates"])
-    ? item["injection-coordinates"].map(Number)
-    : [item.injection_x, item.injection_y, item.injection_z].map(Number);
+  const rawCoordinates = Array.isArray(item["injection-coordinates"])
+    ? item["injection-coordinates"]
+    : [item.injection_x, item.injection_y, item.injection_z];
+  const coordinates = rawCoordinates.map((value) =>
+    value === null || value === undefined || value === "" ? NaN : Number(value),
+  );
   const injectionVolume = Number(item["injection-volume"] ?? item.injection_volume);
   const structureId = Number(item["structure-id"] ?? item.structure_id);
   const transgenicLine = item.transgenic_line && typeof item.transgenic_line === "object"
@@ -158,5 +165,75 @@ export async function loadConnectivityExperiment(experimentId: number) {
     throw new Error("Métadonnées Allen indisponibles");
   }
   return normalizeConnectivityExperiment(payload.msg[0]) ?? null;
+}
+
+let experimentCatalogue: Promise<AllenConnectivityExperiment[]> | null = null;
+let catalogueExpiresAt = 0;
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const bundledCatalogue = resolve(projectRoot, "registration/resources/connectivity_experiments.json");
+const cachedCatalogue = resolve(projectRoot, "registration/cache/connectivity_experiments.json");
+const CATALOGUE_MAX_AGE = 24 * 60 * 60 * 1000;
+let catalogueRefresh: Promise<AllenConnectivityExperiment[]> | null = null;
+
+export async function fetchConnectivityCatalogue(): Promise<AllenConnectivityExperiment[]> {
+  const response = await fetch(
+    "https://api.brain-map.org/api/v2/data/ApiConnectivity/query.json?num_rows=all&order=data_set_id",
+    { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(30_000) },
+  );
+  if (!response.ok) throw new Error(`Allen API: ${response.status}`);
+  const payload = await response.json() as { success?: boolean; msg?: unknown; total_rows?: number };
+  if (payload.success === false || !Array.isArray(payload.msg) || payload.msg.length === 0
+    || payload.msg.length < Number(payload.total_rows)) {
+    throw new Error("Catalogue des expériences Allen incomplet ou indisponible");
+  }
+  const results = new Map<number, AllenConnectivityExperiment>();
+  for (const value of payload.msg) {
+    const experiment = normalizeConnectivityExperiment(value);
+    if (experiment?.injectionCoordinatesUm) results.set(experiment.id, experiment);
+  }
+  if (results.size === 0) throw new Error("Aucune coordonnée d'injection Allen disponible");
+  return [...results.values()];
+}
+
+function refreshCatalogue() {
+  if (!catalogueRefresh) {
+    catalogueRefresh = fetchConnectivityCatalogue().then((results) => {
+      mkdirSync(dirname(cachedCatalogue), { recursive: true });
+      writeFileSync(cachedCatalogue, JSON.stringify({ updatedAt: new Date().toISOString(), results }), "utf8");
+      experimentCatalogue = Promise.resolve(results);
+      catalogueExpiresAt = Date.now() + CATALOGUE_MAX_AGE;
+      return results;
+    }).finally(() => { catalogueRefresh = null; });
+  }
+  return catalogueRefresh;
+}
+
+export function loadConnectivityCatalogue(): Promise<AllenConnectivityExperiment[]> {
+  if (!experimentCatalogue || Date.now() >= catalogueExpiresAt) {
+    for (const path of [cachedCatalogue, bundledCatalogue]) {
+      try {
+        const snapshot = JSON.parse(readFileSync(path, "utf8"));
+        if (!Array.isArray(snapshot.results) || snapshot.results.length === 0
+          || !snapshot.results.every((entry: AllenConnectivityExperiment) =>
+            Number.isSafeInteger(entry.id) && entry.id > 0 && entry.primaryStructure
+            && Array.isArray(entry.injectionStructures) && Array.isArray(entry.injectionCoordinatesUm)
+            && entry.injectionCoordinatesUm.length === 3 && entry.injectionCoordinatesUm.every(Number.isFinite))) continue;
+        experimentCatalogue = Promise.resolve(snapshot.results);
+        catalogueExpiresAt = Date.now() + CATALOGUE_MAX_AGE;
+        if (!Number.isFinite(Date.parse(snapshot.updatedAt))
+          || Date.now() - Date.parse(snapshot.updatedAt) > CATALOGUE_MAX_AGE) {
+          void refreshCatalogue().catch(() => undefined);
+        }
+        return experimentCatalogue;
+      } catch {
+        // An offline or incomplete runtime cache must not hide the bundled catalogue.
+      }
+    }
+    experimentCatalogue = refreshCatalogue().catch((error) => {
+      experimentCatalogue = null;
+      throw error;
+    });
+  }
+  return experimentCatalogue;
 }
 

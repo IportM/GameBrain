@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
+import os
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from time import perf_counter
 
 import nrrd
 import numpy as np
@@ -38,12 +40,21 @@ def download_volume(
         + f"?image={image}&resolution={resolution}"
     )
     print(f"[INFO] Téléchargement {image} à {resolution} µm", flush=True)
+    started = perf_counter()
     request = urllib.request.Request(url, headers={"User-Agent": "GameBrain/0.1"})
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
             with temporary.open("wb") as output:
-                shutil.copyfileobj(response, output, length=1024 * 1024)
+                downloaded = 0
+                last_progress = started
+                while block := response.read(512 * 1024):
+                    output.write(block)
+                    downloaded += len(block)
+                    if perf_counter() - last_progress >= 5:
+                        print(f"[INFO] {image}: {downloaded / 1024**2:.1f} Mio reçus", flush=True)
+                        last_progress = perf_counter()
         temporary.replace(destination)
+        print(f"[OK] {image} téléchargé en {perf_counter() - started:.1f} s", flush=True)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -178,7 +189,7 @@ def export_overlays(
         injection_output = output / "overlays" / "injection" / name
         projection_output.mkdir(parents=True, exist_ok=True)
         injection_output.mkdir(parents=True, exist_ok=True)
-        for index in range(count):
+        def write_slice(index: int) -> None:
             projection_slice = extract_slice(projection, axis, index, transpose)
             injection_slice = extract_slice(injection, axis, index, transpose)
             valid_slice = extract_slice(valid_mask, axis, index, transpose)
@@ -190,8 +201,13 @@ def export_overlays(
                     layer_output / f"{name}-{index:0{width}d}.webp",
                     format="WEBP",
                     lossless=True,
-                    method=4,
+                    method=0,
+                    exact=True,
                 )
+        with ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1)) as executor:
+            for completed, _ in enumerate(executor.map(write_slice, range(count)), start=1):
+                if completed % 100 == 0 or completed == count:
+                    print(f"[INFO] Coupes {name}: {completed}/{count}", flush=True)
     return counts
 
 
@@ -217,9 +233,18 @@ def main() -> None:
     paths = {
         image: raw / f"{image}_{args.resolution}.nrrd" for image in VOLUMES
     }
-    for image, path in paths.items():
-        download_volume(args.experiment_id, image, args.resolution, path)
+    started = perf_counter()
+    print("[INFO] Récupération des trois volumes Allen en parallèle", flush=True)
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(download_volume, args.experiment_id, image, args.resolution, path)
+            for image, path in paths.items()
+        ]
+        for future in futures:
+            future.result()
+    print(f"[OK] Volumes disponibles en {perf_counter() - started:.1f} s", flush=True)
 
+    print("[INFO] Lecture des volumes et du masque anatomique", flush=True)
     volumes = {image: np.asarray(nrrd.read(path)[0]) for image, path in paths.items()}
     shapes = {image: volume.shape for image, volume in volumes.items()}
     if len(set(shapes.values())) != 1:
@@ -249,17 +274,23 @@ def main() -> None:
         )
     valid_mask = (volumes["data_mask"] > 0) & (annotation > 0)
 
+    slices_started = perf_counter()
+    print("[INFO] Préparation des coupes sans perte", flush=True)
     counts = export_overlays(
         volumes["projection_density"].astype(np.float32, copy=False),
         volumes["injection_density"].astype(np.float32, copy=False),
         valid_mask,
         web,
     )
+    print(f"[OK] Coupes préparées en {perf_counter() - slices_started:.1f} s", flush=True)
+    print("[INFO] Préparation des volumes 3D", flush=True)
+    projection_signal = projection_strength(volumes["projection_density"], valid_mask)
+    injection_signal = injection_strength(volumes["injection_density"], valid_mask)
     point_clouds = {
         "projection": {
             "path": "point-clouds/projection.bin",
             "count": export_point_cloud(
-                projection_strength(volumes["projection_density"], valid_mask),
+                projection_signal,
                 args.resolution,
                 web / "point-clouds" / "projection.bin",
             ),
@@ -267,26 +298,26 @@ def main() -> None:
         "injection": {
             "path": "point-clouds/injection.bin",
             "count": export_point_cloud(
-                injection_strength(volumes["injection_density"], valid_mask),
+                injection_signal,
                 args.resolution,
                 web / "point-clouds" / "injection.bin",
             ),
         },
     }
     projection_volume = export_volume(
-        projection_strength(volumes["projection_density"], valid_mask),
+        projection_signal,
         args.resolution,
         web / "volumes" / "projection.bin",
     )
     injection_volume = export_volume(
-        injection_strength(volumes["injection_density"], valid_mask),
+        injection_signal,
         args.resolution,
         web / "volumes" / "injection.bin",
     )
     if projection_volume != injection_volume:
         raise ValueError("Les volumes 3D de connectivité ont des dimensions incompatibles")
     marker_center, marker_radius = injection_marker(
-        injection_strength(volumes["injection_density"], valid_mask),
+        injection_signal,
         args.resolution,
     )
     manifest = {
@@ -318,6 +349,7 @@ def main() -> None:
         encoding="utf-8",
     )
     print(f"[OK] Expérience Allen {args.experiment_id} prête : {web}", flush=True)
+    print(f"[OK] Durée totale: {perf_counter() - started:.1f} s", flush=True)
 
 
 if __name__ == "__main__":

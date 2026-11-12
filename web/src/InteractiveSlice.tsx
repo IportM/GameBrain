@@ -11,6 +11,7 @@ import {
   type SliceResolution,
 } from "./atlas";
 import type { ModalityPalette, ModalitySlice } from "./modalityVolume";
+import { connectivityAlphaTable, loadConnectivityPixels, type ConnectivityPixels } from "./connectivitySliceCache";
 
 const PALETTES: Record<Exclude<ModalityPalette, "gray">, Array<[number, number, number]>> = {
   viridis: [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]],
@@ -61,12 +62,8 @@ export type ConnectivityInspection = {
 type ConnectivitySample = Pick<ConnectivityInspection, "projection" | "injection">;
 type ConnectivitySampler = (horizontal: number, vertical: number) => ConnectivitySample;
 
-type ConnectivityLayer = {
+type ConnectivityLayer = ConnectivityPixels & {
   kind: "projection" | "injection";
-  image: HTMLImageElement;
-  pixels: Uint8ClampedArray;
-  width: number;
-  height: number;
 };
 
 function ConnectivityOverlay({
@@ -83,6 +80,7 @@ function ConnectivityOverlay({
   threshold: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scratchRef = useRef<HTMLCanvasElement | null>(null);
   const [layers, setLayers] = useState<ConnectivityLayer[]>([]);
 
   useEffect(() => {
@@ -91,6 +89,7 @@ function ConnectivityOverlay({
       injectionSrc ? { kind: "injection" as const, source: injectionSrc } : null,
     ].filter((source): source is NonNullable<typeof source> => source !== null);
     let cancelled = false;
+    const controller = new AbortController();
     setLayers([]);
     onSamplerChange(null);
     if (sources.length === 0) {
@@ -99,31 +98,8 @@ function ConnectivityOverlay({
       };
     }
 
-    const loadLayer = ({ kind, source }: (typeof sources)[number]) =>
-      new Promise<ConnectivityLayer>((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => {
-          const canvas = document.createElement("canvas");
-          canvas.width = image.naturalWidth;
-          canvas.height = image.naturalHeight;
-          const context = canvas.getContext("2d", { willReadFrequently: true });
-          if (!context) {
-            reject(new Error("Lecture du calque de connectivité indisponible"));
-            return;
-          }
-          context.drawImage(image, 0, 0);
-          resolve({
-            kind,
-            image,
-            pixels: context.getImageData(0, 0, canvas.width, canvas.height).data,
-            width: canvas.width,
-            height: canvas.height,
-          });
-        };
-        image.onerror = () =>
-          reject(new Error(`Calque de connectivité indisponible : ${source}`));
-        image.src = source;
-      });
+    const loadLayer = async ({ kind, source }: (typeof sources)[number]): Promise<ConnectivityLayer> =>
+      ({ kind, ...await loadConnectivityPixels(source, controller.signal) });
 
     void Promise.all(sources.map(loadLayer)).then((loadedLayers) => {
       if (!cancelled) setLayers(loadedLayers);
@@ -133,6 +109,7 @@ function ConnectivityOverlay({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [injectionSrc, projectionSrc]);
 
@@ -166,31 +143,26 @@ function ConnectivityOverlay({
     canvas.height = first.height;
     context.clearRect(0, 0, canvas.width, canvas.height);
 
-    for (const { image } of layers) {
-      const layer = document.createElement("canvas");
-      layer.width = canvas.width;
-      layer.height = canvas.height;
-      const layerContext = layer.getContext("2d", { willReadFrequently: true });
+    const alphaTable = connectivityAlphaTable(opacity, threshold);
+    const layer = scratchRef.current ?? document.createElement("canvas");
+    scratchRef.current = layer;
+    for (const source of layers) {
+      layer.width = source.width;
+      layer.height = source.height;
+      const layerContext = layer.getContext("2d");
       if (!layerContext) continue;
-      layerContext.drawImage(image, 0, 0);
-      const pixels = layerContext.getImageData(0, 0, layer.width, layer.height);
+      const pixels = new ImageData(new Uint8ClampedArray(source.pixels), source.width, source.height);
       for (let offset = 3; offset < pixels.data.length; offset += 4) {
-        const strength = pixels.data[offset] / 255;
-        if (strength < threshold) {
-          pixels.data[offset] = 0;
-          continue;
-        }
-        const visibleStrength = Math.min(
-          1,
-          Math.max(0, (strength - threshold) / Math.max(0.001, 1 - threshold)),
-        );
-        const enhancedAlpha = 0.18 + 0.82 * Math.pow(visibleStrength, 0.7);
-        pixels.data[offset] = Math.round(255 * opacity * enhancedAlpha);
+        pixels.data[offset] = alphaTable[pixels.data[offset]];
       }
       layerContext.putImageData(pixels, 0, 0);
-      context.drawImage(layer, 0, 0);
+      context.drawImage(layer, 0, 0, canvas.width, canvas.height);
     }
   }, [layers, opacity, threshold]);
+
+  useEffect(() => () => {
+    if (scratchRef.current) scratchRef.current.width = scratchRef.current.height = 0;
+  }, []);
 
   return <canvas ref={canvasRef} className="slice-connectivity-overlay" aria-hidden="true" />;
 }
@@ -562,7 +534,6 @@ function InteractiveSlice({
           const position = pointerPosition(event);
           if (connectivityInspectionEnabled) {
             onConnectivityPin?.(connectivityAtPosition(position));
-            return;
           }
           if (annotationsEnabled) {
             const detailedRegionId = detailedRegionAtPosition(position);

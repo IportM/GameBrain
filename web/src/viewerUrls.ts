@@ -90,14 +90,15 @@ export function connectivityOverlayUrl(
     Math.max(0, Math.round(positionUm / manifest.resolution_um)),
   );
   const paddedIndex = paddedSliceIndex(connectivityIndex);
-  return `/api/connectivity/viewer/overlays/${layer}/${plane}/${plane}-${paddedIndex}.webp?v=${revisionQuery(revision)}`;
+  return `/api/connectivity/viewer/overlays/${layer}/${plane}/${plane}-${paddedIndex}.webp?experiment=${manifest.experiment_id}&v=${revisionQuery(revision)}`;
 }
 
 export function connectivityVolumeUrl(
   layer: "projection" | "injection",
   revision: string | null,
+  experimentId: number | null,
 ) {
-  return `/api/connectivity/viewer/volumes/${layer}.bin?v=${revisionQuery(revision)}`;
+  return `/api/connectivity/viewer/volumes/${layer}.bin?experiment=${experimentId}&v=${revisionQuery(revision)}`;
 }
 
 export function nativeConnectivityOverlayUrl(
@@ -105,14 +106,18 @@ export function nativeConnectivityOverlayUrl(
   plane: SlicePlane,
   index: number,
   revision: string | null,
+  experimentId: number | null,
+  nativeRevision: string | null,
 ) {
   const paddedIndex = paddedSliceIndex(index);
-  return `/api/connectivity/native-viewer/overlays/${layer}/${plane}/${plane}-${paddedIndex}.webp?v=${revisionQuery(revision)}`;
+  return `/api/connectivity/native-viewer/overlays/${layer}/${plane}/${plane}-${paddedIndex}.webp?experiment=${experimentId}&v=${revisionQuery(revision)}&native=${revisionQuery(nativeRevision)}`;
 }
 
 export function nativeConnectivityVolumeUrl(
   layer: "projection" | "injection",
   revision: string | null,
+  experimentId: number | null,
+  nativeRevision: string | null,
 ) {
-  return `/api/connectivity/native-viewer/volumes/${layer}.bin?v=${revisionQuery(revision)}`;
+  return `/api/connectivity/native-viewer/volumes/${layer}.bin?experiment=${experimentId}&v=${revisionQuery(revision)}&native=${revisionQuery(nativeRevision)}`;
 }
