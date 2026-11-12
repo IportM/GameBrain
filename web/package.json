@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/setup.mjs --check",
     "dev": "vite",
     "build": "tsc -b && vite build"
   },

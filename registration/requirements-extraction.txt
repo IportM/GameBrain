@@ -1,2 +1,3 @@
 -r requirements.txt
-antspynet
+antspynet==0.3.2
+tensorflow==2.21.0

@@ -11,6 +11,8 @@ import nibabel as nib
 import nrrd
 import numpy as np
 
+from resource_paths import portable_path
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -133,9 +135,9 @@ def main() -> None:
         "resolution_um": args.resolution_um,
         "shape": list(template.shape),
         "orientation": "LPS stored through a NIfTI RAS affine",
-        "template_source": str(template_path),
+        "template_source": portable_path(template_path, root),
         "template_sha256": sha256(template_path),
-        "annotation_source": str(annotation_path),
+        "annotation_source": portable_path(annotation_path, root),
         "annotation_sha256": sha256(annotation_path),
         "template": template_output.name,
         "annotation": annotation_output.name,

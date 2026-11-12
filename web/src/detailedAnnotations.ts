@@ -1,4 +1,4 @@
-import type { SlicePlane } from "./atlas";
+import { sliceCount, type SlicePlane, type SliceResolution } from "./atlas";
 
 export type DetailedAnnotationStructure = {
   acronym: string;
@@ -19,13 +19,36 @@ export type DetailedAnnotationManifest = {
   structures: DetailedAnnotationStructure[];
 };
 
-export function detailedAnnotationMaskUrl(plane: SlicePlane, index: number) {
-  const paddedIndex = index.toString().padStart(3, "0");
+function detailedAnnotationIndex(
+  plane: SlicePlane,
+  index: number,
+  resolution: SliceResolution,
+) {
+  if (resolution === 25) return index;
+  const sourceLastIndex = Math.max(1, sliceCount(plane, resolution) - 1);
+  const detailedLastIndex = sliceCount(plane, 25) - 1;
+  return Math.round((index / sourceLastIndex) * detailedLastIndex);
+}
+
+export function detailedAnnotationMaskUrl(
+  plane: SlicePlane,
+  index: number,
+  resolution: SliceResolution = 25,
+) {
+  const paddedIndex = detailedAnnotationIndex(plane, index, resolution)
+    .toString()
+    .padStart(3, "0");
   return `/atlas/slices/25/${plane}/detailed-masks/${plane}-${paddedIndex}.png`;
 }
 
-export function detailedAnnotationOutlineUrl(plane: SlicePlane, index: number) {
-  const paddedIndex = index.toString().padStart(3, "0");
+export function detailedAnnotationOutlineUrl(
+  plane: SlicePlane,
+  index: number,
+  resolution: SliceResolution = 25,
+) {
+  const paddedIndex = detailedAnnotationIndex(plane, index, resolution)
+    .toString()
+    .padStart(3, "0");
   return `/atlas/slices/25/${plane}/detailed-outlines/${plane}-${paddedIndex}.webp`;
 }
 

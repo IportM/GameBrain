@@ -112,10 +112,12 @@ function AtlasScene({
   isolatedRegionId,
   onHoverRegion,
   onHoverDetailedRegion,
+  onInspectRegion,
   onSelectRegion,
   onSelectDetailedRegion,
   persistentDetailedRegions,
   selectedRegionId,
+  selectionLocked,
   source,
   subjectRevision,
   subjectRegionsAvailable,
@@ -144,10 +146,12 @@ function AtlasScene({
   isolatedRegionId: number | null;
   onHoverRegion: (regionId: number | null) => void;
   onHoverDetailedRegion: (regionId: number | null) => void;
+  onInspectRegion: (regionId: number | null) => void;
   onSelectRegion: (regionId: number | null) => void;
   onSelectDetailedRegion: (regionId: number | null) => void;
   persistentDetailedRegions: DetailedAnnotationStructure[];
   selectedRegionId: number | null;
+  selectionLocked: boolean;
   source: ViewerSource;
   subjectRevision: string | null;
   subjectRegionsAvailable: boolean;
@@ -160,6 +164,7 @@ function AtlasScene({
   const cameraViews = useRef<CameraViewStore>({ allen: null, subject: null });
   const subjectHoverTimer = useRef<number | null>(null);
   const subjectPickSequence = useRef(0);
+  const pointerGesture = useRef({ x: 0, y: 0, button: -1, dragged: true });
   const clippingPlane = useMemo(() => {
     const plane = new Plane();
     const offset = importedManifest
@@ -189,7 +194,7 @@ function AtlasScene({
   const detailedRegionIsMajor = detailedRegion !== null && REGION_BY_ID.has(detailedRegion.id);
   const contextActive =
     slice3DMode === "clip" || selectedRegionId !== null || detailedRegion !== null;
-  const pointerInteractionLocked = slice3DMode === "clip" || selectedRegionId !== null;
+  const pointerInteractionLocked = slice3DMode === "clip" || selectionLocked;
   const depthContextActive =
     contextActive || connectivityProjectionUrl !== undefined || connectivityInjectionUrl !== undefined || connectivityInjectionCenter !== undefined;
   const sceneRegionId = detailedRegion && !detailedRegionIsMajor
@@ -247,7 +252,8 @@ function AtlasScene({
   }, []);
 
   const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
-    if (pointerInteractionLocked) {
+    if (event.buttons !== 0) {
+      clearPointerHover();
       return;
     }
     event.stopPropagation();
@@ -258,16 +264,21 @@ function AtlasScene({
       const sequence = ++subjectPickSequence.current;
       subjectHoverTimer.current = window.setTimeout(() => {
         void requestSubjectRegion(pick).then((regionId) => {
-          if (sequence === subjectPickSequence.current) onHoverDetailedRegion(regionId);
+          if (sequence !== subjectPickSequence.current) return;
+          onInspectRegion(regionId);
+          if (!pointerInteractionLocked) onHoverDetailedRegion(regionId);
         });
       }, 70);
       return;
     }
-    onHoverRegion(regionFromEvent(event));
+    const regionId = regionFromEvent(event);
+    onInspectRegion(regionId);
+    if (!pointerInteractionLocked) onHoverRegion(regionId);
   };
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
+    if (pointerGesture.current.dragged || pointerGesture.current.button !== 0) return;
     if (source === "subject" && subjectRegionsAvailable) {
       const pick = subjectPickFromEvent(event);
       if (!pick) return;
@@ -286,6 +297,7 @@ function AtlasScene({
     if (subjectHoverTimer.current !== null) window.clearTimeout(subjectHoverTimer.current);
     subjectHoverTimer.current = null;
     subjectPickSequence.current += 1;
+    onInspectRegion(null);
     onHoverDetailedRegion(null);
     onHoverRegion(null);
   };
@@ -300,7 +312,30 @@ function AtlasScene({
         gl.localClippingEnabled = true;
       }}
       onContextMenu={(event) => event.preventDefault()}
+      onPointerDownCapture={(event) => {
+        clearPointerHover();
+        pointerGesture.current = {
+          x: event.clientX,
+          y: event.clientY,
+          button: event.button,
+          dragged: false,
+        };
+      }}
+      onPointerMoveCapture={(event) => {
+        const gesture = pointerGesture.current;
+        if (Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 4) {
+          gesture.dragged = true;
+        }
+      }}
+      onPointerUpCapture={(event) => {
+        const gesture = pointerGesture.current;
+        if (Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 4) {
+          gesture.dragged = true;
+        }
+      }}
+      onPointerCancelCapture={() => { pointerGesture.current.dragged = true; }}
       onPointerMissed={() => {
+        if (pointerGesture.current.dragged || pointerGesture.current.button !== 0) return;
         onSelectDetailedRegion(null);
         onSelectRegion(null);
       }}

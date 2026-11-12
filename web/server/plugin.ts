@@ -1,7 +1,16 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
-import { basename, dirname, extname, resolve } from "node:path";
-import { env as processEnv } from "node:process";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, extname, resolve, sep } from "node:path";
+import { env as processEnv, platform } from "node:process";
 import { fileURLToPath } from "node:url";
 
 import type { Plugin } from "vite";
@@ -50,7 +59,14 @@ type NativeConnectivityState = {
 export function importApi(): Plugin {
   const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const projectRoot = resolve(webRoot, "..");
-  const python = resolve(projectRoot, ".venv-registration", "Scripts", "python.exe");
+  const python = processEnv.GAMEBRAIN_PYTHON
+    ? resolve(projectRoot, processEnv.GAMEBRAIN_PYTHON)
+    : platform === "win32"
+      ? resolve(projectRoot, ".venv-registration", "Scripts", "python.exe")
+      : resolve(projectRoot, ".venv-registration", "bin", "python");
+  const missingFileMessage = (path: string) => path === python
+    ? "Python introuvable. Dans le dossier web, lancez pnpm run setup puis redémarrez le site."
+    : `Fichier manquant : ${path}`;
   const script = resolve(projectRoot, "registration", "src", "prepare_native_import.py");
   const registrationScript = resolve(projectRoot, "registration", "src", "map_allen_to_image.py");
   const nativeLabelsScript = resolve(projectRoot, "registration", "src", "export_native_labels_web.py");
@@ -65,6 +81,8 @@ export function importApi(): Plugin {
   let process: ChildProcessWithoutNullStreams | null = null;
   let registrationProcess: ChildProcessWithoutNullStreams | null = null;
   let connectivityProcess: ChildProcessWithoutNullStreams | null = null;
+  let connectivityStopReason: string | null = null;
+  let connectivityTimeout: ReturnType<typeof setTimeout> | null = null;
   let nativeConnectivityProcess: ChildProcessWithoutNullStreams | null = null;
   let modalityProcess: ChildProcessWithoutNullStreams | null = null;
   let currentOutput: string | null = null;
@@ -314,15 +332,30 @@ export function importApi(): Plugin {
 
   const restoreLatestRegistration = () => {
     if (!currentOutput) return;
-    const manifest = resolve(currentOutput, "..", "registration", "registration_manifest.json");
-    if (!existsSync(manifest)) return;
-    registrationState = {
-      status: "completed",
-      startedAt: null,
-      finishedAt: statSync(manifest).mtime.toISOString(),
-      message: "Recalage Allen terminé",
-      logTail: [],
-    };
+    const output = resolve(currentOutput, "..", "registration");
+    const manifest = resolve(output, "registration_manifest.json");
+    const nativeManifest = resolve(output, "native-web", "manifest.json");
+    const interruptionMarker = resolve(output, ".gamebrain-running.json");
+    if (existsSync(manifest) && existsSync(nativeManifest)) {
+      rmSync(interruptionMarker, { force: true });
+      registrationState = {
+        status: "completed",
+        startedAt: null,
+        finishedAt: statSync(nativeManifest).mtime.toISOString(),
+        message: "Recalage Allen terminé",
+        logTail: [],
+      };
+      return;
+    }
+    if (existsSync(interruptionMarker)) {
+      registrationState = {
+        status: "failed",
+        startedAt: null,
+        finishedAt: statSync(interruptionMarker).mtime.toISOString(),
+        message: "Le recalage précédent a été interrompu. Vous pouvez le relancer.",
+        logTail: ["Calcul interrompu lors de l'arrêt du serveur"],
+      };
+    }
   };
   restoreLatestRegistration();
 
@@ -460,7 +493,7 @@ export function importApi(): Plugin {
     try {
       const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
       return manifest.transform_type === "antsRegistrationSyN[s]"
-        && basename(manifest.template ?? "") === "registration_allen_ccf2017_100um.nii.gz";
+        && basename(String(manifest.template ?? "").replaceAll("\\", "/")) === "registration_allen_ccf2017_100um.nii.gz";
     } catch {
       return false;
     }
@@ -544,7 +577,7 @@ export function importApi(): Plugin {
     if (process) return;
     const missing = [python, script, input].find((path) => !existsSync(path));
     if (missing) {
-      state = { ...state, status: "failed", finishedAt: new Date().toISOString(), message: `Fichier manquant : ${missing}` };
+      state = { ...state, status: "failed", finishedAt: new Date().toISOString(), message: missingFileMessage(missing) };
       return;
     }
     state = {
@@ -875,7 +908,7 @@ export function importApi(): Plugin {
             return;
           }
           const target = resolve(root, id);
-          if (!target.toLocaleLowerCase().startsWith(`${resolve(root).toLocaleLowerCase()}\\`)) {
+          if (!target.toLocaleLowerCase().startsWith(`${resolve(root).toLocaleLowerCase()}${sep}`)) {
             response.statusCode = 400;
             response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Chemin invalide" }));
             return;
@@ -923,7 +956,7 @@ export function importApi(): Plugin {
           const asset = match?.[2] ?? volumeMatch![2];
           const path = resolve(root, id, asset);
           if (
-            !path.toLocaleLowerCase().startsWith(`${resolve(root, id).toLocaleLowerCase()}\\`)
+            !path.toLocaleLowerCase().startsWith(`${resolve(root, id).toLocaleLowerCase()}${sep}`)
             || !existsSync(path)
           ) {
             response.statusCode = 404;
@@ -965,6 +998,25 @@ export function importApi(): Plugin {
           response.end(JSON.stringify(connectivityResponsePayload()));
           return;
         }
+        if (request.url === "/api/connectivity/cancel" && request.method === "DELETE") {
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          if (!connectivityProcess) {
+            response.statusCode = 409;
+            response.end(JSON.stringify(connectivityResponsePayload()));
+            return;
+          }
+          connectivityStopReason = "Chargement annulé par l'utilisateur";
+          connectivityState = {
+            ...connectivityState,
+            status: "failed",
+            finishedAt: new Date().toISOString(),
+            message: connectivityStopReason,
+          };
+          connectivityProcess.kill();
+          response.statusCode = 202;
+          response.end(JSON.stringify(connectivityResponsePayload()));
+          return;
+        }
         if (request.url === "/api/session" && request.method === "DELETE") {
           response.setHeader("Content-Type", "application/json; charset=utf-8");
           if (process || registrationProcess || connectivityProcess || nativeConnectivityProcess || modalityProcess) {
@@ -977,7 +1029,7 @@ export function importApi(): Plugin {
           }
           const registrationRoot = resolve(projectRoot, "registration");
           const safeRoots = [resolve(importsRoot), resolve(connectivityRoot)];
-          if (safeRoots.some((path) => !path.toLocaleLowerCase().startsWith(`${registrationRoot.toLocaleLowerCase()}\\`))) {
+          if (safeRoots.some((path) => !path.toLocaleLowerCase().startsWith(`${registrationRoot.toLocaleLowerCase()}${sep}`))) {
             response.statusCode = 500;
             response.end(JSON.stringify({ ok: false, message: "Chemin de réinitialisation invalide" }));
             return;
@@ -1117,7 +1169,7 @@ export function importApi(): Plugin {
               status: "failed",
               startedAt: null,
               finishedAt: new Date().toISOString(),
-              message: `Fichier manquant : ${missing}`,
+              message: missingFileMessage(missing),
               logTail: [],
               experimentId,
               metadata: null,
@@ -1149,6 +1201,7 @@ export function importApi(): Plugin {
             logTail: [],
           };
           currentConnectivityOutput = null;
+          connectivityStopReason = null;
           connectivityProcess = spawn(
             python,
             [
@@ -1168,7 +1221,20 @@ export function importApi(): Plugin {
           );
           connectivityProcess.stdout.on("data", pushConnectivityLog);
           connectivityProcess.stderr.on("data", pushConnectivityLog);
+          connectivityTimeout = setTimeout(() => {
+            if (!connectivityProcess) return;
+            connectivityStopReason = "Le chargement a dépassé la limite de cinq minutes";
+            connectivityState = {
+              ...connectivityState,
+              status: "failed",
+              finishedAt: new Date().toISOString(),
+              message: connectivityStopReason,
+            };
+            connectivityProcess.kill();
+          }, 5 * 60 * 1000);
           connectivityProcess.on("error", (error) => {
+            if (connectivityTimeout) clearTimeout(connectivityTimeout);
+            connectivityTimeout = null;
             connectivityState = {
               ...connectivityState,
               status: "failed",
@@ -1178,9 +1244,13 @@ export function importApi(): Plugin {
             connectivityProcess = null;
           });
           connectivityProcess.on("close", (code) => {
+            if (connectivityTimeout) clearTimeout(connectivityTimeout);
+            connectivityTimeout = null;
             const webOutput = resolve(output, "web");
             const manifest = resolve(webOutput, "manifest.json");
-            const succeeded = code === 0 && existsSync(manifest);
+            const stopReason = connectivityStopReason;
+            connectivityStopReason = null;
+            const succeeded = stopReason === null && code === 0 && existsSync(manifest);
             if (succeeded) currentConnectivityOutput = webOutput;
             const lastLogLine = connectivityState.logTail[connectivityState.logTail.length - 1];
             connectivityState = {
@@ -1189,7 +1259,7 @@ export function importApi(): Plugin {
               finishedAt: new Date().toISOString(),
               message: succeeded
                 ? `Expérience Allen ${experimentId} prête`
-                : lastLogLine || `Le chargement s'est arrêté avec le code ${code ?? "inconnu"}`,
+                : stopReason || lastLogLine || `Le chargement s'est arrêté avec le code ${code ?? "inconnu"}`,
             };
             connectivityProcess = null;
           });
@@ -1216,7 +1286,7 @@ export function importApi(): Plugin {
             .find((path) => !existsSync(path));
           if (missing) {
             response.statusCode = 400;
-            nativeConnectivityState = { status: "failed", message: `Fichier manquant : ${missing}`, logTail: [] };
+            nativeConnectivityState = { status: "failed", message: missingFileMessage(missing), logTail: [] };
             response.end(JSON.stringify(connectivityResponsePayload()));
             return;
           }
@@ -1270,6 +1340,7 @@ export function importApi(): Plugin {
           const job = resolve(currentOutput, "..");
           const brain = resolve(job, "extraction", "brain_extracted.nii.gz");
           const output = resolve(job, "registration");
+          const interruptionMarker = resolve(output, ".gamebrain-running.json");
           const existingLabels = resolve(output, "allen_labels_in_input_space.nii.gz");
           const exportOnly = reusableRegistration(output) && !existsSync(resolve(output, "native-web", "manifest.json"));
           const missing = [python, exportOnly ? nativeLabelsScript : registrationScript, exportOnly ? existingLabels : brain]
@@ -1279,7 +1350,7 @@ export function importApi(): Plugin {
               ...registrationState,
               status: "failed",
               finishedAt: new Date().toISOString(),
-              message: `Fichier manquant : ${missing}`,
+              message: missingFileMessage(missing),
             };
             response.statusCode = 500;
             response.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -1293,6 +1364,11 @@ export function importApi(): Plugin {
             message: exportOnly ? "Préparation des régions recalées" : "Recalage complet de la souris vers Allen",
             logTail: [exportOnly ? "Conversion des labels natifs" : "Préparation du recalage SyN complet"],
           };
+          mkdirSync(output, { recursive: true });
+          writeFileSync(interruptionMarker, JSON.stringify({
+            startedAt: registrationState.startedAt,
+            mode: exportOnly ? "native-labels" : "registration",
+          }), "utf8");
           const command = exportOnly
             ? [
                 nativeLabelsScript,
@@ -1322,6 +1398,7 @@ export function importApi(): Plugin {
           registrationProcess.stdout.on("data", pushRegistrationLog);
           registrationProcess.stderr.on("data", pushRegistrationLog);
           registrationProcess.on("error", (error) => {
+            rmSync(interruptionMarker, { force: true });
             registrationState = {
               ...registrationState,
               status: "failed",
@@ -1331,6 +1408,7 @@ export function importApi(): Plugin {
             registrationProcess = null;
           });
           registrationProcess.on("close", (code) => {
+            rmSync(interruptionMarker, { force: true });
             const manifest = resolve(output, "registration_manifest.json");
             const nativeManifest = resolve(output, "native-web", "manifest.json");
             const succeeded = code === 0 && existsSync(manifest) && existsSync(nativeManifest);
@@ -1410,7 +1488,7 @@ export function importApi(): Plugin {
           }
           if (currentOutput) {
             const job = resolve(currentOutput, "..");
-            const importsPrefix = `${resolve(importsRoot).toLocaleLowerCase()}\\`;
+            const importsPrefix = `${resolve(importsRoot).toLocaleLowerCase()}${sep}`;
             if (!job.toLocaleLowerCase().startsWith(importsPrefix)) {
               response.statusCode = 400;
               response.setHeader("Content-Type", "application/json; charset=utf-8");

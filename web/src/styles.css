@@ -1216,6 +1216,12 @@ h1 {
   background: #315043;
 }
 
+.registration-dialog-actions button.is-danger {
+  border-color: #744f4f;
+  color: #efc4c4;
+  background: #302020;
+}
+
 .registration-dialog-actions button:disabled {
   opacity: 0.55;
   cursor: wait;
@@ -2536,6 +2542,30 @@ h1 {
   z-index: 1;
 }
 
+.region-hover-tooltip {
+  position: fixed;
+  z-index: 50;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 6px 9px;
+  border: 1px solid #59665e;
+  border-radius: 4px;
+  background: #202622;
+  color: #f2f5f1;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 30%);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.region-hover-tooltip-acronym {
+  display: block;
+  margin-top: 2px;
+  color: #aab8af;
+  font-size: 10px;
+}
+
 .slice-image-wrap.is-hovering img {
   cursor: pointer;
 }
@@ -2784,6 +2814,74 @@ h1 {
 .region-actions button:focus-visible {
   outline: 2px solid #e5f1e8;
   outline-offset: 2px;
+}
+
+@media (max-width: 1450px) and (min-width: 641px) {
+  .topbar {
+    gap: 14px;
+    padding-inline: 12px;
+  }
+
+  .topbar-actions {
+    gap: 6px;
+  }
+
+  .topbar-actions button,
+  .image-menu > summary,
+  .source-selector button {
+    padding-inline: 9px;
+    font-size: 11px;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(560px, 1.45fr) minmax(420px, 1fr);
+  }
+
+  .viewer {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .panel-header {
+    padding-inline: 9px;
+  }
+
+  .slice-header-tools,
+  .slice-command-bar {
+    gap: 6px;
+  }
+
+  .slice-command-bar {
+    padding-inline: 8px;
+  }
+
+  .connectivity-toggle {
+    width: 124px;
+    padding-inline: 6px;
+  }
+
+  .slice-layer-controls label {
+    padding-inline: 6px;
+  }
+
+  .resolution-selector {
+    grid-template-columns: repeat(3, 42px);
+  }
+
+  .connectivity-control-strip {
+    height: auto;
+    grid-template-columns: minmax(150px, 1fr) auto;
+    gap: 8px 12px;
+  }
+
+  .connectivity-control-ranges {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .modality-control-strip {
+    grid-template-columns: 1fr 1fr minmax(100px, 1.2fr);
+    gap: 8px;
+  }
 }
 
 @media (max-width: 640px) {

@@ -9,6 +9,8 @@ from PIL import Image
 from scipy import ndimage
 from skimage import measure
 
+from resource_paths import resolve_atlas_resource
+
 
 PLANES = (
     {"name": "coronal", "axis": 0, "transpose": False},
@@ -111,7 +113,7 @@ def main() -> None:
     if not registration_manifest.exists():
         raise FileNotFoundError(registration_manifest)
     registration = json.loads(registration_manifest.read_text(encoding="utf-8"))
-    labels_path = Path(registration["labels"]).expanduser().resolve()
+    labels_path = resolve_atlas_resource(registration["labels"], result)
     if not labels_path.exists():
         raise FileNotFoundError(labels_path)
     atlas_mask = np.asarray(nib.load(labels_path).dataobj) > 0

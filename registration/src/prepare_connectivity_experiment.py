@@ -230,8 +230,8 @@ def main() -> None:
     project_root = Path(__file__).resolve().parents[2]
     annotation_path = args.annotation_mask or (
         project_root
-        / "data-source"
-        / "allen-multires"
+        / "registration"
+        / "resources"
         / f"annotation_{args.resolution}.nrrd"
     )
     annotation_path = annotation_path.expanduser().resolve()
@@ -309,8 +309,8 @@ def main() -> None:
             "center_mm": marker_center,
             "radius_mm": marker_radius,
         },
-        "anatomical_mask": str(annotation_path),
-        "volumes": {image: str(path.relative_to(output)) for image, path in paths.items()},
+        "anatomical_mask": annotation_path.name,
+        "volumes": {image: path.relative_to(output).as_posix() for image, path in paths.items()},
     }
     web.mkdir(parents=True, exist_ok=True)
     (web / "manifest.json").write_text(

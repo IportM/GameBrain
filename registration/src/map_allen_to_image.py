@@ -12,6 +12,8 @@ from pathlib import Path
 
 import numpy as np
 
+from resource_paths import portable_path
+
 
 def require_file(path: Path, label: str) -> Path:
     path = path.expanduser().resolve()
@@ -84,7 +86,7 @@ def copy_transform_list(
         source = require_file(Path(source_name), f"Transformation {direction}")
         target = destination / f"{direction}_{index:02d}_{source.name}"
         shutil.copy2(source, target)
-        copied.append(str(target.relative_to(destination.parent)))
+        copied.append(target.relative_to(destination.parent).as_posix())
     return copied
 
 
@@ -298,9 +300,9 @@ def main() -> None:
 
     payload = {
         "pipeline": "gamebrain-allen-syn-v1",
-        "input": str(input_path),
-        "template": str(template_source),
-        "labels": str(labels_source),
+        "input": portable_path(input_path, output),
+        "template": portable_path(template_source, output),
+        "labels": portable_path(labels_source, output),
         "transform_type": transform_type,
         "threads": args.threads,
         "native_geometry": image_geometry(moving_image),

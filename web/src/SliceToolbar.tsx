@@ -188,8 +188,11 @@ function SliceToolbarComponent({
               </label>
             </div>
             <span>
-              {connectivityState.metadata?.primaryStructure.name ||
-                "Métadonnées anatomiques en cours de récupération"}
+                {connectivityState.metadata?.primaryStructure.name || (
+                  connectivityState.status === "running"
+                    ? "Métadonnées anatomiques en cours de récupération"
+                    : "Métadonnées anatomiques indisponibles"
+                )}
             </span>
             {connectivityState.metadata && (
               <small>

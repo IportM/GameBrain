@@ -2,6 +2,30 @@
  Guide d'utilisation des outils de recalage Allen
 ============================================================
 
+INSTALLATION DU SITE (Windows / Linux) :
+---------------------------------------
+Suivre le README à la racine du dépôt : depuis `web`, lancer `pnpm install`,
+`pnpm run setup`, puis `pnpm run dev --host 127.0.0.1 --port 5173`.
+Python 3.12 en 64 bits est requis. `pnpm run doctor` vérifie l'installation.
+Les commandes historiques ci-dessous sont destinées aux scripts en ligne de commande,
+pas nécessaires pour utiliser le site.
+
+Pour utiliser un Python 3.12 existant au lieu de créer `.venv-registration`,
+définir `GAMEBRAIN_PYTHON` avant l'installation et le démarrage :
+
+```bash
+# Linux
+export GAMEBRAIN_PYTHON=/chemin/vers/python
+```
+
+```powershell
+# Windows
+$env:GAMEBRAIN_PYTHON = "C:\chemin\vers\python.exe"
+```
+
+Puis lancer `pnpm run setup` depuis `web`. Les bibliothèques seront installées
+dans cet environnement. Ne pas copier un environnement virtuel entre machines.
+
 PRÉREQUIS :
 ------------
 Avant d'exécuter les outils, placez-vous dans le dossier "Recallage_Allen".

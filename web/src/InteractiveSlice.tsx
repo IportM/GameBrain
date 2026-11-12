@@ -198,6 +198,7 @@ function ConnectivityOverlay({
 function InteractiveSlice({
   annotationOutlineSrc,
   annotationsEnabled = true,
+  annotationsVisible = annotationsEnabled,
   connectivityInjectionSrc,
   connectivityInspectionEnabled = false,
   connectivityOpacity = 1,
@@ -208,6 +209,7 @@ function InteractiveSlice({
   detailedMaskValueToRegionId,
   hoveredRegionId,
   imageSrc,
+  imageResolutionMicrometers,
   index,
   maskOutlineSrc,
   maskSrc,
@@ -221,6 +223,7 @@ function InteractiveSlice({
   onConnectivityPin,
   onHoverDetailedRegion,
   onHoverRegion,
+  onInspectRegion,
   onSelectDetailedRegion,
   onSelectRegion,
   plane,
@@ -229,6 +232,7 @@ function InteractiveSlice({
 }: {
   annotationOutlineSrc?: string;
   annotationsEnabled?: boolean;
+  annotationsVisible?: boolean;
   connectivityInjectionSrc?: string;
   connectivityInspectionEnabled?: boolean;
   connectivityOpacity?: number;
@@ -239,6 +243,7 @@ function InteractiveSlice({
   detailedMaskValueToRegionId?: ReadonlyMap<number, number>;
   hoveredRegionId: number | null;
   imageSrc?: string;
+  imageResolutionMicrometers?: number;
   index: number;
   maskOutlineSrc?: string;
   maskSrc?: string;
@@ -252,6 +257,7 @@ function InteractiveSlice({
   onConnectivityPin?: (inspection: ConnectivityInspection | null) => void;
   onHoverDetailedRegion?: (regionId: number | null) => void;
   onHoverRegion: (regionId: number | null) => void;
+  onInspectRegion?: (regionId: number | null) => void;
   onSelectDetailedRegion?: (regionId: number | null) => void;
   onSelectRegion: (regionId: number | null) => void;
   plane: SlicePlane;
@@ -299,6 +305,8 @@ function InteractiveSlice({
     let cancelled = false;
     let loadDelay: number | null = null;
     maskDataRef.current = null;
+    const overlay = overlayRef.current;
+    overlay?.getContext("2d")?.clearRect(0, 0, overlay.width, overlay.height);
     if (!annotationsEnabled) {
       if (overlayRef.current) {
         const context = overlayRef.current.getContext("2d");
@@ -331,10 +339,6 @@ function InteractiveSlice({
           pixels: context.getImageData(0, 0, readCanvas.width, readCanvas.height).data,
         };
 
-        if (overlayRef.current) {
-          overlayRef.current.width = readCanvas.width;
-          overlayRef.current.height = readCanvas.height;
-        }
         setMaskRevision((current) => current + 1);
       };
       maskImage.src = maskSrc ?? sliceMaskUrl(plane, index, resolution);
@@ -354,6 +358,8 @@ function InteractiveSlice({
   useEffect(() => {
     let cancelled = false;
     detailedMaskDataRef.current = null;
+    const overlay = overlayRef.current;
+    overlay?.getContext("2d")?.clearRect(0, 0, overlay.width, overlay.height);
     if (!detailedMaskSrc) {
       setDetailedMaskRevision((current) => current + 1);
       return () => {
@@ -386,7 +392,7 @@ function InteractiveSlice({
   useEffect(() => {
     const canvas = overlayRef.current;
     const detailedMaskData = detailedMaskDataRef.current;
-    const maskData = detailedHighlight && detailedMaskData
+    const maskData = detailedHighlight
       ? detailedMaskData
       : maskDataRef.current;
     if (!canvas) {
@@ -411,6 +417,10 @@ function InteractiveSlice({
     if (!maskValue || !regionColor) {
       return;
     }
+
+    // The detailed and major-region masks can have different pixel dimensions.
+    if (canvas.width !== maskData.width) canvas.width = maskData.width;
+    if (canvas.height !== maskData.height) canvas.height = maskData.height;
 
     const color = Number.parseInt(regionColor.slice(1), 16);
     const red = (color >> 16) & 255;
@@ -524,6 +534,9 @@ function InteractiveSlice({
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLImageElement>) => {
     const position = pointerPosition(event);
+    onInspectRegion?.(detailedRegionAtPosition(position) ?? (
+      annotationsEnabled ? regionAtPosition(position) : null
+    ));
     if (annotationsEnabled) onHoverRegion(regionAtPosition(position));
     onHoverDetailedRegion?.(detailedRegionAtPosition(position));
     onConnectivityInspect?.(connectivityAtPosition(position));
@@ -536,9 +549,13 @@ function InteractiveSlice({
         className={regionColorsVisible ? undefined : "is-region-colors-hidden"}
         style={modalityVisible && modalitySliceData ? { opacity: 0 } : undefined}
         src={imageSrc ?? sliceUrl(plane, index, resolution)}
-        alt={annotationsEnabled
-          ? `${SLICE_PLANES[plane].title} ${index} à ${resolution} micromètres de l'atlas Allen avec annotations`
-          : `${SLICE_PLANES[plane].title} ${index} de l'image importée`}
+        alt={`${SLICE_PLANES[plane].title} ${index} ${
+          imageSrc
+            ? `de l'image importée${imageResolutionMicrometers
+              ? ` à ${imageResolutionMicrometers} micromètres`
+              : ""}`
+            : `à ${resolution} micromètres de l'atlas Allen`
+        }${annotationsVisible ? " avec annotations" : ""}`}
         draggable={false}
         decoding="async"
         onClick={(event) => {
@@ -558,6 +575,7 @@ function InteractiveSlice({
         }}
         onPointerMove={handlePointerMove}
         onPointerLeave={() => {
+          onInspectRegion?.(null);
           onHoverRegion(null);
           onHoverDetailedRegion?.(null);
           onConnectivityInspect?.(null);

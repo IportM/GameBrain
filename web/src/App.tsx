@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import InteractiveSlice, { type ConnectivityInspection } from "./InteractiveSlice";
+import RegionTooltip from "./RegionTooltip";
 import { ConnectivityReadout, SliceToolbar } from "./SliceToolbar";
 import type { ViewerSource } from "./AtlasScene";
 import {
@@ -105,6 +106,7 @@ function formatMeasurement(value: number) {
 }
 
 export default function App() {
+  const [tooltipRegionId, setTooltipRegionId] = useState<number | null>(null);
   const [hoveredRegionId, setHoveredRegionId] = useState<number | null>(null);
   const [menuHoveredRegionId, setMenuHoveredRegionId] = useState<number | null>(null);
   const [lastInspectedRegionId, setLastInspectedRegionId] = useState<number | null>(null);
@@ -130,6 +132,7 @@ export default function App() {
   const [regionSearch, setRegionSearch] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sceneResetKey, setSceneResetKey] = useState(0);
+  const [sceneReady, setSceneReady] = useState(false);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [allenRegistrationOpen, setAllenRegistrationOpen] = useState(false);
   const [connectivityOpen, setConnectivityOpen] = useState(false);
@@ -199,6 +202,7 @@ export default function App() {
   const [nativeSceneDetailedRegionId, setNativeSceneDetailedRegionId] = useState<number | null>(null);
   const activatedSubjectRevision = useRef<string | null>(null);
   const imageMenuRef = useRef<HTMLDetailsElement>(null);
+  const regionExportListRef = useRef<HTMLDivElement>(null);
   const sliceWheelDelta = useRef(0);
   const pendingWheelSteps = useRef(0);
   const sliceWheelFrame = useRef<number | null>(null);
@@ -220,11 +224,17 @@ export default function App() {
     wholeBrainVisible: boolean;
   } | null>(null);
 
-  const activeRegionId = connectivityVisible
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSceneReady(true), 80);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const hasRegionSelection = selectedRegionId !== null || selectedDetailedRegionId !== null;
+  const activeRegionId = hasRegionSelection || connectivityVisible
     ? selectedRegionId
-    : menuHoveredRegionId ?? hoveredRegionId ?? selectedRegionId;
-  const sceneHoveredRegionId = connectivityVisible
-    ? null
+    : menuHoveredRegionId ?? hoveredRegionId;
+  const sceneHoveredRegionId = connectivityVisible || hasRegionSelection
+    ? selectedRegionId
     : slice3DMode === "clip"
       ? menuHoveredRegionId ?? hoveredRegionId
       : activeRegionId;
@@ -233,13 +243,20 @@ export default function App() {
     () => new Map(detailedAnnotations?.structures.map((structure) => [structure.id, structure]) ?? []),
     [detailedAnnotations],
   );
+  const inspectSceneRegion = useCallback((regionId: number | null) => {
+    const structure = regionId === null ? null : detailedStructureById.get(regionId);
+    setTooltipRegionId(structure ? majorRegionIdFor(structure) ?? regionId : regionId);
+  }, [detailedStructureById]);
+  const tooltipRegion = tooltipRegionId === null
+    ? null
+    : detailedStructureById.get(tooltipRegionId) ?? REGION_BY_ID.get(tooltipRegionId);
   const detailedMaskValueToRegionId = useMemo(
     () => new Map(
       detailedAnnotations?.structures.map((structure) => [structure.maskValue, structure.id]) ?? [],
     ),
     [detailedAnnotations],
   );
-  const activeDetailedRegionId = connectivityVisible
+  const activeDetailedRegionId = hasRegionSelection || connectivityVisible
     ? selectedDetailedRegionId
     : hoveredDetailedRegionId ?? selectedDetailedRegionId;
   const activeDetailedRegion = activeDetailedRegionId === null
@@ -325,10 +342,10 @@ export default function App() {
       setNativeSceneDetailedRegionId(null);
       return;
     }
-    const targetId = connectivityVisible
+    const targetId = hasRegionSelection || connectivityVisible
       ? selectedDetailedRegionId
       : hoveredDetailedRegionId ?? selectedDetailedRegionId;
-    if (targetId === null || connectivityVisible || hoveredDetailedRegionId === null) {
+    if (targetId === null || hasRegionSelection || connectivityVisible || hoveredDetailedRegionId === null) {
       setNativeSceneDetailedRegionId(targetId);
       return;
     }
@@ -336,7 +353,7 @@ export default function App() {
       setNativeSceneDetailedRegionId(targetId);
     }, 140);
     return () => window.clearTimeout(timer);
-  }, [connectivityVisible, hoveredDetailedRegionId, selectedDetailedRegionId, viewerSource]);
+  }, [hasRegionSelection, connectivityVisible, hoveredDetailedRegionId, selectedDetailedRegionId, viewerSource]);
   const sliceAnnotationsEnabled =
     viewerSource === "allen" || (viewerSource === "subject" && subjectAnnotationsAvailable);
   const sliceIndexes = sliceIndexesBySource[viewerSource];
@@ -384,9 +401,7 @@ export default function App() {
 
   useEffect(() => {
     setHoveredDetailedRegionId(null);
-    const detailedSelectionAvailable = viewerSource === "allen"
-      ? sliceResolution === 25
-      : subjectAnnotationsAvailable;
+    const detailedSelectionAvailable = viewerSource === "allen" || subjectAnnotationsAvailable;
     if (!detailedSelectionAvailable) {
       setSelectedDetailedRegionId(null);
     }
@@ -415,6 +430,8 @@ export default function App() {
   const selectRegion = useCallback((regionId: number | null) => {
     setSelectedDetailedRegionId(null);
     setHoveredDetailedRegionId(null);
+    setHoveredRegionId(null);
+    setMenuHoveredRegionId(null);
     if (regionId !== null) {
       setVisibility((current) => ({ ...current, [regionId]: true }));
       setLastInspectedRegionId(regionId);
@@ -423,22 +440,27 @@ export default function App() {
   }, []);
 
   const hoverRegionFromViewer = useCallback((regionId: number | null) => {
+    if (hasRegionSelection) return;
     if (!connectivityVisible && regionId !== null) {
       setLastInspectedRegionId(regionId);
     }
     setHoveredRegionId(connectivityVisible ? null : regionId);
-  }, [connectivityVisible]);
+  }, [connectivityVisible, hasRegionSelection]);
 
   const hoverDetailedRegion = useCallback((regionId: number | null) => {
+    if (hasRegionSelection) return;
     setHoveredDetailedRegionId(connectivityVisible ? null : regionId);
-  }, [connectivityVisible]);
+  }, [connectivityVisible, hasRegionSelection]);
 
   const selectDetailedRegion = useCallback((regionId: number | null) => {
     const next = selectedDetailedRegionId === regionId ? null : regionId;
     const structure = next === null ? null : detailedStructureById.get(next) ?? null;
     const majorRegionId = structure ? majorRegionIdFor(structure) : null;
     setSelectedDetailedRegionId(next);
-    setSelectedRegionId(majorRegionId);
+    setSelectedRegionId(null);
+    setHoveredRegionId(null);
+    setHoveredDetailedRegionId(null);
+    setMenuHoveredRegionId(null);
     setIsolatedRegionId(null);
     if (majorRegionId !== null) {
       setVisibility((visibilityState) => ({ ...visibilityState, [majorRegionId]: true }));
@@ -473,7 +495,7 @@ export default function App() {
     setHoveredRegionId(null);
     setMenuHoveredRegionId(null);
     setIsolatedRegionId(null);
-    setSelectedRegionId(majorRegionId);
+    setSelectedRegionId(null);
     if (majorRegionId !== null) {
       setVisibility((current) => ({ ...current, [majorRegionId]: true }));
       setLastInspectedRegionId(majorRegionId);
@@ -486,12 +508,12 @@ export default function App() {
       setMenuHoveredRegionId(null);
       return;
     }
-    if (connectivityVisible) {
+    if (connectivityVisible || hasRegionSelection) {
       return;
     }
     setHoveredDetailedRegionId(structure.id);
     setMenuHoveredRegionId(majorRegionIdFor(structure));
-  }, [connectivityVisible]);
+  }, [connectivityVisible, hasRegionSelection]);
 
   const inspectConnectivity = useCallback((inspection: ConnectivityInspection | null) => {
     if (connectivityPinnedInspection !== null) {
@@ -828,9 +850,9 @@ export default function App() {
         if (sliceAnnotationsEnabled) {
           assets.push(sliceMaskUrl(activePlane, index, sliceResolution));
         }
-        if (sliceResolution === 25 && detailedAnnotations) {
-          assets.push(detailedAnnotationMaskUrl(activePlane, index));
-          assets.push(detailedAnnotationOutlineUrl(activePlane, index));
+        if (detailedAnnotations) {
+          assets.push(detailedAnnotationMaskUrl(activePlane, index, sliceResolution));
+          assets.push(detailedAnnotationOutlineUrl(activePlane, index, sliceResolution));
         }
         if (connectivityVisible && connectivityState.viewerManifest) {
           if (projectionVisible) {
@@ -1319,7 +1341,14 @@ export default function App() {
   };
 
   const exportRegionValues = async () => {
-    if (!activeModality || regionExportIds.size === 0) return;
+    const checkedRegionIds = [...(
+      regionExportListRef.current?.querySelectorAll<HTMLInputElement>(
+        'input[name="region-export-id"]:checked',
+      ) ?? []
+    )]
+      .map((input) => Number(input.value))
+      .filter((regionId) => Number.isSafeInteger(regionId) && regionId > 0);
+    if (!activeModality || checkedRegionIds.length === 0) return;
     setRegionExportPending(true);
     setRegionExportError(null);
     try {
@@ -1328,7 +1357,7 @@ export default function App() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ regionIds: [...regionExportIds] }),
+          body: JSON.stringify({ regionIds: checkedRegionIds }),
         },
       );
       if (!response.ok) {
@@ -1419,11 +1448,35 @@ export default function App() {
       setConnectivitySearchResults(payload.results);
       setConnectivitySearchStatus("completed");
       setConnectivitySearchMessage(payload.message);
+      setConnectivityState((current) => current.status === "failed"
+        && current.message === "Saisissez un identifiant d'expérience Allen valide"
+        ? {
+            ...current,
+            status: current.hasViewerAssets ? "completed" : "idle",
+            message: current.hasViewerAssets
+              ? `Expérience Allen ${current.experimentId} prête`
+              : "Sélectionnez une expérience Allen",
+          }
+        : current);
     } catch (error) {
       setConnectivitySearchStatus("failed");
       setConnectivitySearchMessage(
         error instanceof Error ? error.message : "La recherche Allen a échoué",
       );
+    }
+  };
+
+  const cancelConnectivity = async () => {
+    try {
+      const response = await fetch("/api/connectivity/cancel", { method: "DELETE" });
+      const nextState = await readConnectivityResponse(response);
+      setConnectivityState(nextState);
+    } catch (error) {
+      setConnectivityState((current) => ({
+        ...current,
+        status: "failed",
+        message: error instanceof Error ? error.message : "Impossible d'annuler le chargement",
+      }));
     }
   };
 
@@ -1578,6 +1631,7 @@ export default function App() {
                   </span>
                 </div>
                 <button
+                  aria-label="Changer l'image importée"
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
@@ -1587,6 +1641,9 @@ export default function App() {
                   Changer d’image
                 </button>
                 <button
+                  aria-label={subjectAnnotationsAvailable
+                    ? "Gérer le recalage Allen de l'image importée"
+                    : "Recaler l'image importée avec Allen"}
                   type="button"
                   disabled={allenRegistrationState.status === "running"}
                   onClick={(event) => {
@@ -1597,6 +1654,7 @@ export default function App() {
                   {subjectAnnotationsAvailable ? "Gérer le recalage Allen" : "Recaler avec Allen"}
                 </button>
                 <button
+                  aria-label="Gérer les modalités complémentaires"
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
@@ -1608,6 +1666,7 @@ export default function App() {
                     : ""}
                 </button>
                 <button
+                  aria-label="Supprimer l'image importée"
                   className="is-danger"
                   type="button"
                   disabled={
@@ -2020,11 +2079,13 @@ export default function App() {
                 <strong>{regionExportIds.size}</strong> région{regionExportIds.size > 1 ? "s" : ""} sélectionnée{regionExportIds.size > 1 ? "s" : ""}
                 <span>Modalité : {activeModality?.name ?? "indisponible"}</span>
               </div>
-              <div className="region-export-list">
+              <div className="region-export-list" ref={regionExportListRef}>
                 {filteredExportRegions.map((structure) => (
                   <label key={structure.id}>
                     <input
                       type="checkbox"
+                      name="region-export-id"
+                      value={structure.id}
                       checked={regionExportIds.has(structure.id)}
                       onChange={() => setRegionExportIds((current) => {
                         const next = new Set(current);
@@ -2109,7 +2170,19 @@ export default function App() {
                   role="tab"
                   aria-selected={connectivityLoadMode === "region"}
                   className={connectivityLoadMode === "region" ? "is-active" : ""}
-                  onClick={() => setConnectivityLoadMode("region")}
+                  onClick={() => {
+                    setConnectivityLoadMode("region");
+                    setConnectivityState((current) => current.status === "failed"
+                      && current.message === "Saisissez un identifiant d'expérience Allen valide"
+                      ? {
+                          ...current,
+                          status: current.hasViewerAssets ? "completed" : "idle",
+                          message: current.hasViewerAssets
+                            ? `Expérience Allen ${current.experimentId} prête`
+                            : "Recherchez ou sélectionnez une expérience Allen",
+                        }
+                      : current);
+                  }}
                 >
                   Par région
                 </button>
@@ -2240,6 +2313,15 @@ export default function App() {
               )}
             </div>
             <footer className="registration-dialog-actions">
+              {connectivityState.status === "running" && (
+                <button
+                  className="is-danger"
+                  type="button"
+                  onClick={() => void cancelConnectivity()}
+                >
+                  Annuler le chargement
+                </button>
+              )}
               {connectivityState.hasViewerAssets && (
                 <button
                   type="button"
@@ -2480,7 +2562,8 @@ export default function App() {
             )}
           </aside>
           <div className={`viewer-content${viewerSource === "subject" && activeModality && measuredRegionId !== null ? " has-measurements" : ""}`}>
-            <div className="viewer-stage">
+            <div className="viewer-stage" onPointerLeave={() => setTooltipRegionId(null)}>
+            {sceneReady ? (
             <Suspense
               fallback={
                 <div className="scene-loading" role="status">
@@ -2563,9 +2646,11 @@ export default function App() {
                 isolatedRegionId={isolatedRegionId}
                 onHoverRegion={hoverRegionFromViewer}
                 onHoverDetailedRegion={hoverMajorRegionFromNativeScene}
+                onInspectRegion={inspectSceneRegion}
                 onSelectRegion={selectRegion}
                 onSelectDetailedRegion={selectMajorRegionFromNativeScene}
                 selectedRegionId={selectedRegionId}
+                selectionLocked={hasRegionSelection}
                 source={viewerSource}
                 subjectRevision={registrationState.finishedAt}
                 subjectRegionsAvailable={subjectAnnotationsAvailable}
@@ -2576,6 +2661,11 @@ export default function App() {
                 wholeBrainVisible={wholeBrainVisible}
               />
             </Suspense>
+            ) : (
+              <div className="scene-loading" role="status">
+                Chargement de la vue 3D
+              </div>
+            )}
             </div>
             {viewerSource === "subject" && activeModality && measuredRegionId !== null && (
               <section className="region-measurements-panel" aria-live="polite">
@@ -2659,7 +2749,7 @@ export default function App() {
             connectivityThreshold={connectivityThreshold}
             connectivityVisible={connectivityVisible}
             injectionVisible={injectionVisible}
-            modalityControlsVisible={activeModality !== null}
+            modalityControlsVisible={viewerSource === "subject" && activeModality !== null}
             modalityInverted={modalityInverted}
             modalityMax={modalityMax}
             modalityMin={modalityMin}
@@ -2703,13 +2793,16 @@ export default function App() {
           >
             <InteractiveSlice
               annotationOutlineSrc={
-                viewerSource === "allen" && sliceResolution === 25 && showAllenRegionColors
-                  ? detailedAnnotationOutlineUrl(activePlane, sliceIndex)
+                viewerSource === "allen" && showAllenRegionColors
+                  ? detailedAnnotationOutlineUrl(activePlane, sliceIndex, sliceResolution)
                   : viewerSource === "subject" && subjectAnnotationsAvailable && showImportedAnnotations
                     ? subjectAllenDetailedOutlineUrl(activePlane, sliceIndex, allenRegistrationState.finishedAt)
                     : undefined
               }
               annotationsEnabled={sliceAnnotationsEnabled}
+              annotationsVisible={viewerSource === "allen"
+                ? showAllenRegionColors
+                : subjectAnnotationsAvailable && showImportedAnnotations}
               connectivityInspectionEnabled={viewerSource === "allen" && connectivityVisible}
               connectivityProjectionSrc={
                 connectivityVisible && projectionVisible
@@ -2752,8 +2845,8 @@ export default function App() {
                   }
                 : null}
               detailedMaskSrc={
-                viewerSource === "allen" && sliceResolution === 25 && detailedAnnotations
-                  ? detailedAnnotationMaskUrl(activePlane, sliceIndex)
+                viewerSource === "allen" && detailedAnnotations
+                  ? detailedAnnotationMaskUrl(activePlane, sliceIndex, sliceResolution)
                   : viewerSource === "subject" && subjectAnnotationsAvailable && detailedAnnotations
                     ? subjectAllenDetailedMaskUrl(activePlane, sliceIndex, allenRegistrationState.finishedAt)
                   : undefined
@@ -2771,6 +2864,9 @@ export default function App() {
                       : subjectSliceUrl(activePlane, sliceIndex, registrationState.finishedAt)
                   : undefined
               }
+              imageResolutionMicrometers={viewerSource === "subject"
+                ? Math.round(activeSliceSpacingMm * 1000)
+                : undefined}
               modalityBrainOnly={showBrainOnly}
               modalityInverted={modalityInverted}
               modalityPalette={modalityPalette}
@@ -2789,6 +2885,7 @@ export default function App() {
                   : undefined
               }
               onHoverRegion={hoverRegionFromViewer}
+              onInspectRegion={setTooltipRegionId}
               onHoverDetailedRegion={hoverDetailedRegion}
               onConnectivityInspect={inspectConnectivity}
               onConnectivityPin={pinConnectivityInspection}
@@ -2827,6 +2924,7 @@ export default function App() {
           </div>
         </section>
       </div>
+      <RegionTooltip name={tooltipRegion?.name ?? null} acronym={tooltipRegion?.acronym} />
     </main>
   );
 }

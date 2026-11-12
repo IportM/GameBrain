@@ -71,7 +71,7 @@ def main() -> None:
     parser.add_argument(
         "--structures",
         type=Path,
-        default=root / "data-source" / "brainglobe" / "allen_mouse_25um_v1.2" / "structures.json",
+        default=root / "registration" / "resources" / "structures.json",
     )
     args = parser.parse_args()
 

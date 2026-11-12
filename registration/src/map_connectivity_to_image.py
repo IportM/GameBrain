@@ -9,6 +9,8 @@ import ants
 import nrrd
 import numpy as np
 
+from resource_paths import portable_path, resolve_atlas_resource
+
 from prepare_connectivity_experiment import (
     export_overlays,
     injection_strength,
@@ -76,15 +78,18 @@ def main() -> None:
         raise ValueError("Résolutions Allen incompatibles pour la projection native")
     step = target_resolution // source_resolution
 
-    fixed_atlas = ants.image_read(registration_manifest["template"])
+    fixed_atlas = ants.image_read(str(resolve_atlas_resource(
+        registration_manifest["template"], registration
+    )))
     native_reference = ants.image_read(str(registration / registration_manifest["outputs"]["brain"]))
     inverse_transforms = [
-        str(registration / path) for path in registration_manifest["transforms"]["inverse"]
+        str(registration / path.replace("\\", "/"))
+        for path in registration_manifest["transforms"]["inverse"]
     ]
     native_volumes: dict[str, np.ndarray] = {}
     output.mkdir(parents=True, exist_ok=True)
     for name in ("projection_density", "injection_density", "data_mask"):
-        source_path = connectivity / connectivity_manifest["volumes"][name]
+        source_path = connectivity / connectivity_manifest["volumes"][name].replace("\\", "/")
         source = registration_grid(np.asarray(nrrd.read(source_path)[0]), step)
         if tuple(source.shape) != tuple(fixed_atlas.shape):
             raise ValueError(
@@ -136,7 +141,7 @@ def main() -> None:
             "center_mm": marker_center,
             "radius_mm": marker_radius,
         },
-        "registration": str(registration),
+        "registration": portable_path(registration, web),
     }
     web.mkdir(parents=True, exist_ok=True)
     (web / "manifest.json").write_text(
