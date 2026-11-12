@@ -68,6 +68,8 @@ import {
   type ModalitySlice,
 } from "./modalityVolume";
 import RegionTree from "./RegionTree";
+import Workspace from "./Workspace";
+import { ChevronLeft, ChevronRight, Focus, LockKeyhole, MousePointer2, RotateCcw, X } from "lucide-react";
 import {
   detailedAnnotationMaskUrl,
   detailedAnnotationOutlineUrl,
@@ -136,6 +138,7 @@ export default function App() {
   const [regionSearch, setRegionSearch] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sceneResetKey, setSceneResetKey] = useState(0);
+  const [cameraResetRevision, setCameraResetRevision] = useState(0);
   const [sceneReady, setSceneReady] = useState(false);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [allenRegistrationOpen, setAllenRegistrationOpen] = useState(false);
@@ -234,6 +237,7 @@ export default function App() {
   const [nativeSceneDetailedRegionId, setNativeSceneDetailedRegionId] = useState<number | null>(null);
   const activatedSubjectRevision = useRef<string | null>(null);
   const imageMenuRef = useRef<HTMLDetailsElement>(null);
+  const sessionMenuRef = useRef<HTMLDetailsElement>(null);
   const regionExportListRef = useRef<HTMLDivElement>(null);
   const sliceWheelDelta = useRef(0);
   const pendingWheelSteps = useRef(0);
@@ -518,14 +522,19 @@ export default function App() {
 
   useEffect(() => {
     const closeImageMenu = (event: PointerEvent) => {
-      const menu = imageMenuRef.current;
-      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) {
-        menu.removeAttribute("open");
+      for (const menu of [imageMenuRef.current, sessionMenuRef.current]) {
+        if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) {
+          menu.removeAttribute("open");
+        }
       }
     };
     const closeImageMenuWithKeyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        imageMenuRef.current?.removeAttribute("open");
+        for (const menu of [imageMenuRef.current, sessionMenuRef.current]) {
+          if (!menu?.open) continue;
+          menu.removeAttribute("open");
+          menu.querySelector("summary")?.focus();
+        }
       }
     };
     document.addEventListener("pointerdown", closeImageMenu);
@@ -853,6 +862,20 @@ export default function App() {
     sliceWheelDelta.current = 0;
     resetRegionDisplay();
     setSceneResetKey((current) => current + 1);
+  };
+
+  const exploreExperiments = () => {
+    setViewerSource("allen");
+    setSlice3DMode("none");
+    setConnectivityVisible(false);
+    setSelectedExperiment(null);
+    setHoveredExperiment(null);
+    setConnectivityPinnedInspection(null);
+    setConnectivityHoverInspection(null);
+    setTooltipRegionId(null);
+    setExperimentExplorerEnabled(true);
+    setExperimentFilterRegion(hasRegionSelection);
+    setConnectivityOpen(false);
   };
 
   const changeSliceResolution = useCallback((nextResolution: SliceResolution) => {
@@ -1822,14 +1845,19 @@ export default function App() {
           >
             Connectivité
           </button>
-          <button
-            className="global-reset-button is-danger"
-            type="button"
-            title="Supprimer les imports et les calculs, puis revenir à l'état initial"
-            onClick={() => void resetEntireSession()}
-          >
-            Revenir à zéro
-          </button>
+          <details className="image-menu session-menu" ref={sessionMenuRef}>
+            <summary>Session</summary>
+            <div className="image-menu-popover">
+              <button type="button" onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                resetWorkspaceDisplay();
+              }}><RotateCcw size={15} aria-hidden="true" /> Rétablir l'affichage</button>
+              <button className="is-danger" type="button" onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                void resetEntireSession();
+              }}>Supprimer les données de session</button>
+            </div>
+          </details>
         </div>
       </header>
       {registrationOpen && (
@@ -2436,19 +2464,7 @@ export default function App() {
             <footer className="registration-dialog-actions">
               <button
                 type="button"
-                onClick={() => {
-                  setViewerSource("allen");
-                  setSlice3DMode("none");
-                  setConnectivityVisible(false);
-                  setSelectedExperiment(null);
-                  setHoveredExperiment(null);
-                  setConnectivityPinnedInspection(null);
-                  setConnectivityHoverInspection(null);
-                  setTooltipRegionId(null);
-                  setExperimentExplorerEnabled(true);
-                  setExperimentFilterRegion(hasRegionSelection);
-                  setConnectivityOpen(false);
-                }}
+                onClick={exploreExperiments}
               >
                 Explorer les injections en 3D
               </button>
@@ -2504,7 +2520,7 @@ export default function App() {
           </section>
         </div>
       )}
-      <div className="workspace">
+      <Workspace resetRevision={sceneResetKey}>
         <section
           className={`viewer${sidebarCollapsed ? " is-sidebar-collapsed" : ""}${activeRegion ? " is-hovering" : ""}`}
           aria-label="Vue 3D des regions anatomiques Allen"
@@ -2512,6 +2528,12 @@ export default function App() {
           <aside className="viewer-sidebar" aria-label="Réglages de la vue 3D">
             <header className="viewer-sidebar-header">
               <span>{sidebarCollapsed ? "3D" : "Vue 3D"}</span>
+              <div className="viewer-sidebar-actions">
+                {!sidebarCollapsed && <button type="button" className="sidebar-toggle"
+                  aria-label="Recentrer la vue 3D" title="Recentrer la vue 3D"
+                  onClick={() => setCameraResetRevision((current) => current + 1)}>
+                  <Focus size={16} aria-hidden="true" />
+                </button>}
               <button
                 type="button"
                 className="sidebar-toggle"
@@ -2519,8 +2541,9 @@ export default function App() {
                 title={sidebarCollapsed ? "Ouvrir le panneau" : "Réduire le panneau"}
                 onClick={() => setSidebarCollapsed((current) => !current)}
               >
-                {sidebarCollapsed ? ">" : "<"}
+                {sidebarCollapsed ? <ChevronRight size={16} aria-hidden="true" /> : <ChevronLeft size={16} aria-hidden="true" />}
               </button>
+              </div>
             </header>
             {!sidebarCollapsed && (
               <div className="viewer-sidebar-content">
@@ -2538,7 +2561,7 @@ export default function App() {
                           setSlice3DMode(mode);
                         }}
                       >
-                        {mode === "none" ? "Entier" : mode === "plane" ? "Plan" : "Coupe"}
+                        {mode === "none" ? "Cerveau entier" : mode === "plane" ? "Plan de coupe" : "Cerveau coupé"}
                       </button>
                     ))}
                   </div>
@@ -2565,7 +2588,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  <div className="opacity-control">
+                  {(experimentExplorerActive || connectivityVisible || slice3DMode === "clip" || hasRegionSelection) && <div className="opacity-control">
                     <div className="tool-heading">
                       <label htmlFor="context-opacity">Opacité du contexte</label>
                       <output htmlFor="context-opacity">{Math.round(brainOpacity * 100)}%</output>
@@ -2577,10 +2600,9 @@ export default function App() {
                       max="100"
                       step="5"
                       value={Math.round(brainOpacity * 100)}
-                      disabled={!experimentExplorerActive && slice3DMode !== "clip" && selectedRegionId === null}
                       onChange={(event) => setBrainOpacity(Number(event.currentTarget.value) / 100)}
                     />
-                  </div>
+                  </div>}
                 </section>
                 <section
                   className={`region-picker${viewerSource === "subject" && !subjectAnnotationsAvailable ? " is-hidden" : ""}`}
@@ -2617,9 +2639,9 @@ export default function App() {
                       type="button"
                       className="region-display-reset"
                       onClick={resetRegionDisplay}
-                      title="Rétablir toutes les régions"
+                      title="Rétablir la visibilité des régions et quitter l'isolation"
                     >
-                      Réinitialiser
+                      <RotateCcw size={14} aria-hidden="true" /> Rétablir
                     </button>
                   </div>
                   <div className="region-picker-list">
@@ -2652,13 +2674,12 @@ export default function App() {
                 />
                 <div>
                   <p className="region-info-label">
+                    {hasRegionSelection ? <LockKeyhole size={13} aria-hidden="true" /> : <MousePointer2 size={13} aria-hidden="true" />}
                     {selectedDetailedRegionId === detailRegion.id
-                      ? "Annotation sélectionnée"
+                      ? "Sélection verrouillée"
                       : selectedRegionId === detailRegion.id
-                        ? "Région sélectionnée"
-                        : activeDetailedRegion
-                          ? "Annotation Allen"
-                          : "Région Allen"}
+                        ? "Sélection verrouillée"
+                        : "Aperçu au survol"}
                   </p>
                   <h2>{detailRegion.name}</h2>
                 </div>
@@ -2691,7 +2712,7 @@ export default function App() {
                     {isolationSnapshot ? "Retour" : "Isoler"}
                   </button>
                   <button type="button" onClick={hideSelectedRegion}>Masquer</button>
-                  <button type="button" onClick={clearSelectedRegion}>Effacer</button>
+                  <button type="button" onClick={clearSelectedRegion} title="Libérer la sélection de région"><X size={14} aria-hidden="true" /> Libérer</button>
                 </div>
               )}
                     </aside>
@@ -2748,6 +2769,7 @@ export default function App() {
               }
             >
               <AtlasScene
+                cameraResetRevision={cameraResetRevision}
                 key={sceneResetKey}
                 experimentExplorerActive={experimentExplorerActive}
                 experiments={visibleExperiments}
@@ -2924,6 +2946,12 @@ export default function App() {
             </div>
           </header>
           <SliceToolbar
+            onExploreExperiments={exploreExperiments}
+            onReturnToExperiment={() => {
+              setExperimentExplorerEnabled(false);
+              setHoveredExperiment(null);
+              setConnectivityVisible(true);
+            }}
             library={
               <ConnectivityLibrary
                 experiments={downloadedConnectivity}
@@ -3118,7 +3146,7 @@ export default function App() {
             />
           </div>
         </section>
-      </div>
+      </Workspace>
       <RegionTooltip
         name={hoveredExperiment
           ? `Experiment #${hoveredExperiment.id} / ${hoveredExperiment.primaryStructure.name || hoveredExperiment.primaryStructure.acronym}`

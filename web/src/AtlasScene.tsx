@@ -55,21 +55,28 @@ type CameraViewStore = Record<ViewerSource, SavedCameraView | null>;
 function IndependentOrbitControls({
   source,
   views,
+  resetRevision,
 }: {
   source: ViewerSource;
   views: MutableRefObject<CameraViewStore>;
+  resetRevision: number;
 }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   const { camera } = useThree();
+  const lastReset = useRef(resetRevision);
 
   useEffect(() => {
+    if (lastReset.current !== resetRevision) {
+      views.current[source] = null;
+      lastReset.current = resetRevision;
+    }
     const saved = views.current[source];
     const position = saved?.position ?? [15, 13, 16];
     const target = saved?.target ?? [0, 0, 0];
     camera.position.set(...position);
     controls.current?.target.set(...target);
     controls.current?.update();
-  }, [camera, source, views]);
+  }, [camera, source, views, resetRevision]);
 
   return (
     <OrbitControls
@@ -96,6 +103,7 @@ function IndependentOrbitControls({
 }
 
 function AtlasScene({
+  cameraResetRevision,
   activePlane,
   annotationRevision,
   baseOpacity,
@@ -136,6 +144,7 @@ function AtlasScene({
   visibility,
   wholeBrainVisible,
 }: {
+  cameraResetRevision: number;
   activePlane: SlicePlane;
   annotationRevision: string | null;
   baseOpacity: number;
@@ -571,7 +580,7 @@ function AtlasScene({
         </group>
         <Environment preset="studio" environmentIntensity={0.35} />
       </Suspense>
-      <IndependentOrbitControls source={source} views={cameraViews} />
+      <IndependentOrbitControls source={source} views={cameraViews} resetRevision={cameraResetRevision} />
     </Canvas>
   );
 }

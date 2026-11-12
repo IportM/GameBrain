@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { ChevronDown, ChevronRight, LockKeyhole } from "lucide-react";
 
 import type { DetailedAnnotationStructure } from "./detailedAnnotations";
 
@@ -49,7 +50,7 @@ function RegionTreeComponent({
       if (current.size > 0) return current;
       return new Set(
         structures
-          .filter((structure) => structure.path.length <= 4)
+          .filter((structure) => structure.path.length <= 2)
           .map((structure) => structure.id),
       );
     });
@@ -68,7 +69,7 @@ function RegionTreeComponent({
   useEffect(() => {
     if (selectedId === null) return;
     const frame = requestAnimationFrame(() => {
-      selectedRowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      selectedRowRef.current?.scrollIntoView({ block: "nearest", behavior: "instant" });
     });
     return () => cancelAnimationFrame(frame);
   }, [expanded, selectedId]);
@@ -112,7 +113,7 @@ function RegionTreeComponent({
 
   return (
     <div className="region-tree-shell">
-      <div className="region-tree" role="tree">
+      <div className="region-tree" role="tree" aria-label="Arborescence des régions Allen">
       {rows.map(({ depth, structure }) => {
         const children = childrenByParent.get(structure.id) ?? [];
         const isExpanded = searchVisibleIds !== null || expanded.has(structure.id);
@@ -125,8 +126,9 @@ function RegionTreeComponent({
             onPointerLeave={() => onHover(null)}
             role="treeitem"
             aria-level={depth + 1}
+            aria-selected={selectedId === structure.id}
             aria-expanded={children.length > 0 ? isExpanded : undefined}
-            style={{ "--tree-depth": depth } as CSSProperties}
+            style={{ "--tree-depth": Math.min(depth, 6) } as CSSProperties}
           >
             {children.length > 0 ? (
               <button
@@ -142,7 +144,7 @@ function RegionTreeComponent({
                   });
                 }}
               >
-                {isExpanded ? "▾" : "▸"}
+                {isExpanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
               </button>
             ) : (
               <span className="region-tree-toggle-spacer" />
@@ -162,17 +164,16 @@ function RegionTreeComponent({
             <button
               type="button"
               className="region-tree-select"
-              title={`Sélectionner ${structure.name}`}
+              title={`${structure.name} (${structure.acronym}) · Allen ${structure.id}`}
               onClick={() => onSelect(structure)}
             >
               <span>
                 <strong>
                   {structure.acronym}
-                  {children.length > 0 && <em>{children.length}</em>}
+                  {selectedId === structure.id && <LockKeyhole size={12} aria-hidden="true" />}
                 </strong>
                 <small>{structure.name}</small>
               </span>
-              <span className="region-number">{structure.id}</span>
             </button>
           </div>
         );

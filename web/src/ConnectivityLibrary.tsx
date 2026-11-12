@@ -1,4 +1,5 @@
 import type { DownloadedConnectivityExperiment } from "./data";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function ConnectivityLibrary({ experiments, activeId, disabled, error, onSelect }: {
   experiments: DownloadedConnectivityExperiment[];
@@ -31,12 +32,12 @@ export default function ConnectivityLibrary({ experiments, activeId, disabled, e
         disabled={disabled || experiments.length < 2}
         onClick={() => onSelect(experiments[current < 0
           ? experiments.length - 1 : (current - 1 + experiments.length) % experiments.length].id)}>
-        ←
+        <ChevronLeft size={16} aria-hidden="true" />
       </button>
       <button type="button" aria-label="Expérience suivante" title="Expérience suivante"
         disabled={disabled || experiments.length < 2}
         onClick={() => onSelect(experiments[(current + 1) % experiments.length].id)}>
-        →
+        <ChevronRight size={16} aria-hidden="true" />
       </button>
       {error && <small role="alert">{error}</small>}
     </div>

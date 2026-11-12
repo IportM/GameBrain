@@ -49,14 +49,17 @@ function importedSlicePlaneTransform(
 
 export function ResponsiveCamera() {
   const { camera, size } = useThree();
+  const positioned = useRef(false);
+  const compact = size.width < 640;
   useEffect(() => {
     if (!(camera instanceof PerspectiveCamera)) return;
-    const mobile = size.width < 640;
-    const position: [number, number, number] = mobile ? [23, 20, 25] : [15, 13, 16];
-    camera.position.set(...position);
-    camera.fov = mobile ? 45 : 38;
+    if (!positioned.current) {
+      camera.position.set(...(compact ? [23, 20, 25] : [15, 13, 16]) as [number, number, number]);
+      positioned.current = true;
+    }
+    camera.fov = compact ? 45 : 38;
     camera.updateProjectionMatrix();
-  }, [camera, size.width]);
+  }, [camera, compact]);
   return null;
 }
 

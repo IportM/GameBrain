@@ -1,4 +1,5 @@
 import type { ConnectivitySearchResult } from "./data";
+import { X } from "lucide-react";
 
 export default function ExperimentExplorerPanel({
   count, total, loading, error, filtered, regionName, selected, busy,
@@ -20,7 +21,7 @@ export default function ExperimentExplorerPanel({
   return (
     <section className="experiment-explorer-panel" aria-label="Explorateur des expériences Allen">
       <div className="experiment-explorer-toolbar">
-        <strong>Expériences Allen</strong>
+        <strong>Points d'injection</strong>
         <span className="experiment-explorer-count" role="status">
           {loading ? "Chargement…" : `${count} / ${total}`}
         </span>
@@ -32,7 +33,7 @@ export default function ExperimentExplorerPanel({
           </button>
         </div>
         <button type="button" className="experiment-explorer-close" aria-label="Fermer l'explorateur"
-          title="Fermer l'explorateur" onClick={onClose}>×</button>
+          title="Fermer l'explorateur" onClick={onClose}><X size={16} aria-hidden="true" /></button>
       </div>
       {filtered && <p className="experiment-explorer-region">{regionName ?? "Aucune région sélectionnée"}</p>}
       {error && <div className="experiment-explorer-error" role="alert">

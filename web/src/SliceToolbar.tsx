@@ -1,4 +1,5 @@
 import { memo, type ReactNode } from "react";
+import { MapPin } from "lucide-react";
 
 import type { ConnectivityInspection } from "./InteractiveSlice";
 import {
@@ -13,6 +14,8 @@ import type { ConnectivityState } from "./data";
 import type { ModalityPalette } from "./modalityVolume";
 
 type SliceToolbarProps = {
+  onExploreExperiments: () => void;
+  onReturnToExperiment: () => void;
   library?: ReactNode;
   activePlane: SlicePlane;
   connectivityAvailable: boolean;
@@ -54,6 +57,8 @@ type SliceToolbarProps = {
 };
 
 function SliceToolbarComponent({
+  onExploreExperiments,
+  onReturnToExperiment,
   library,
   activePlane,
   connectivityAvailable,
@@ -95,6 +100,12 @@ function SliceToolbarComponent({
 }: SliceToolbarProps) {
   return (
     <div className="slice-toolbar-stack">
+      {viewerSource === "allen" && !connectivityControlsVisible && (
+        <div className="connectivity-explorer-return">
+          <span>Points d'injection</span>
+          {connectivityAvailable && <button type="button" onClick={onReturnToExperiment}>Revenir à la carte</button>}
+        </div>
+      )}
       {(!connectivityAvailable || !connectivityControlsVisible) && library}
       <div className="slice-command-bar" aria-label="Outils de la coupe">
         {viewerSource === "allen" ? (
@@ -164,6 +175,9 @@ function SliceToolbarComponent({
             <div className="connectivity-session-experiment">
               {library || <strong>Expérience {connectivityState.experimentId}</strong>}
             </div>
+            {viewerSource === "allen" && <button type="button" className="tool-icon-button"
+              title="Explorer les points d'injection" aria-label="Explorer les points d'injection"
+              onClick={onExploreExperiments}><MapPin size={16} aria-hidden="true" /></button>}
             <label className="connectivity-master-toggle">
               <input
                 type="checkbox"
