@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n";
 import {
   lazy,
   Suspense,
@@ -110,11 +111,13 @@ function majorRegionIdFor(structure: DetailedAnnotationStructure) {
   return [...structure.path].reverse().find((id) => MAJOR_REGION_IDS.has(id)) ?? null;
 }
 
-function formatMeasurement(value: number) {
-  return value.toLocaleString("fr-FR", { maximumSignificantDigits: 6 });
+function formatMeasurement(value: number, language: "fr" | "en") {
+  return value.toLocaleString(language === "fr" ? "fr-FR" : "en-GB", { maximumSignificantDigits: 6 });
 }
 
 export default function App() {
+  const { t, language, setLanguage } = useI18n();
+  const formatValue = (value: number) => formatMeasurement(value, language);
   const [tooltipRegionId, setTooltipRegionId] = useState<number | null>(null);
   const [hoveredRegionId, setHoveredRegionId] = useState<number | null>(null);
   const [menuHoveredRegionId, setMenuHoveredRegionId] = useState<number | null>(null);
@@ -1715,7 +1718,7 @@ export default function App() {
 
   const resetEntireSession = async () => {
     const confirmed = window.confirm(
-      "Tout supprimer et revenir à l'état initial ?\n\nL'image importée, son recalage et toutes les données de connectivité calculées seront définitivement effacés.",
+      t("Tout supprimer et revenir à l'état initial ?\n\nL'image importée, son recalage et toutes les données de connectivité calculées seront définitivement effacés."),
     );
     if (!confirmed) return;
     try {
@@ -1743,7 +1746,7 @@ export default function App() {
         subject: { ...centeredAllenIndexes },
       });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "La réinitialisation complète a échoué");
+      window.alert(t(error instanceof Error ? error.message : "La réinitialisation complète a échoué"));
     }
   };
 
@@ -1752,21 +1755,23 @@ export default function App() {
       <header className="topbar">
         <div className="title-block">
           <p className="eyebrow">
-            {viewerSource === "subject" ? "Image NIfTI importée" : `Allen Mouse Brain Atlas / ${sliceResolution} um`}
+            {viewerSource === "subject" ? t("Image NIfTI importée") : t(`Allen Mouse Brain Atlas / ${sliceResolution} um`)}
           </p>
-          <h1>Atlas anatomique</h1>
+          <h1>{t("Atlas anatomique")}</h1>
         </div>
         <div className="topbar-actions">
+          <div className="language-selector" role="group" aria-label={t("Langue de l'interface")}>
+            <button type="button" aria-pressed={language === "fr"} lang="fr" title="Français" onClick={() => setLanguage("fr")}>FR</button>
+            <button type="button" aria-pressed={language === "en"} lang="en" title="English" onClick={() => setLanguage("en")}>EN</button>
+          </div>
           {registrationState.hasViewerAssets && (
-            <div className="source-selector" role="group" aria-label="Image affichée">
+            <div className="source-selector" role="group" aria-label={t("Image affichée")}>
               <button
                 aria-pressed={viewerSource === "allen"}
                 className={viewerSource === "allen" ? "is-active" : undefined}
                 onClick={() => setViewerSource("allen")}
                 type="button"
-              >
-                Allen
-              </button>
+              >{t("Allen")}</button>
               <button
                 aria-pressed={viewerSource === "subject"}
                 className={viewerSource === "subject" ? "is-active" : undefined}
@@ -1775,9 +1780,7 @@ export default function App() {
                   setViewerSource("subject");
                 }}
                 type="button"
-              >
-                Image importée
-              </button>
+              >{t("Image importée")}</button>
             </div>
           )}
           {!registrationState.hasViewerAssets ? (
@@ -1786,12 +1789,12 @@ export default function App() {
               type="button"
               onClick={() => setRegistrationOpen(true)}
             >
-              {registrationState.status === "uploading" || registrationState.status === "running" ? "Import en cours" : "Importer une image"}
+              {registrationState.status === "uploading" || registrationState.status === "running" ? t("Import en cours") : t("Importer une image")}
             </button>
           ) : (
             <details className="image-menu" ref={imageMenuRef}>
               <summary>
-                <span>Image</span>
+                <span>{t("Image")}</span>
                 <span
                   className={`image-menu-status${subjectAnnotationsAvailable ? " is-ready" : ""}${allenRegistrationState.status === "running" ? " is-running" : ""}`}
                   aria-hidden="true"
@@ -1799,51 +1802,48 @@ export default function App() {
               </summary>
               <div className="image-menu-popover">
                 <div className="image-menu-heading">
-                  <strong>{registrationState.fileName ?? "Image importée"}</strong>
+                  <strong>{registrationState.fileName ?? t("Image importée")}</strong>
                   <span>
                     {allenRegistrationState.status === "running"
-                      ? "Recalage Allen en cours"
+                      ? t("Recalage Allen en cours")
                       : subjectAnnotationsAvailable
-                        ? "Régions Allen disponibles"
-                        : "Régions Allen non calculées"}
+                        ? t("Régions Allen disponibles")
+                        : t("Régions Allen non calculées")}
                   </span>
                 </div>
                 <button
-                  aria-label="Gérer l'image et son import"
+                  aria-label={t("Gérer l'image et son import")}
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
                     setRegistrationOpen(true);
                   }}
-                >
-                  Image et import
-                </button>
+                >{t("Image et import")}</button>
                 <button
-                  aria-label={allenRegistrationState.status === "running" ? "Suivre le recalage Allen" : subjectAnnotationsAvailable
-                    ? "Gérer le recalage Allen de l'image importée"
-                    : "Recaler l'image importée avec Allen"}
+                  aria-label={allenRegistrationState.status === "running" ? t("Suivre le recalage Allen") : subjectAnnotationsAvailable
+                    ? t("Gérer le recalage Allen de l'image importée")
+                    : t("Recaler l'image importée avec Allen")}
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
                     setAllenRegistrationOpen(true);
                   }}
                 >
-                  {allenRegistrationState.status === "running" ? "Suivre le recalage" : "Recalage Allen"}
+                  {allenRegistrationState.status === "running" ? t("Suivre le recalage") : t("Recalage Allen")}
                 </button>
                 <button
-                  aria-label="Gérer les modalités complémentaires"
+                  aria-label={t("Gérer les modalités complémentaires")}
                   type="button"
                   onClick={(event) => {
                     event.currentTarget.closest("details")?.removeAttribute("open");
                     setModalitiesOpen(true);
                   }}
-                >
-                  Modalités{modalityState.modalities.length > 0
+                >{t("Modalités")}{modalityState.modalities.length > 0
                     ? ` (${modalityState.modalities.length})`
                     : ""}
                 </button>
                 <button
-                  aria-label="Supprimer l'image importée"
+                  aria-label={t("Supprimer l'image importée")}
                   className="is-danger"
                   type="button"
                   disabled={
@@ -1852,13 +1852,11 @@ export default function App() {
                     allenRegistrationState.status === "running"
                   }
                   onClick={() => {
-                    if (window.confirm("Supprimer l’image importée et toutes les données générées ?")) {
+                    if (window.confirm(t("Supprimer l’image importée et toutes les données générées ?"))) {
                       void deleteImportedImage();
                     }
                   }}
-                >
-                  Supprimer l’image
-                </button>
+                >{t("Supprimer l’image")}</button>
               </div>
             </details>
           )}
@@ -1867,28 +1865,24 @@ export default function App() {
               className="global-reset-button"
               type="button"
               onClick={openRegionExport}
-            >
-              Exporter les valeurs
-            </button>
+            >{t("Exporter les valeurs")}</button>
           )}
           <button
             className={`global-reset-button${connectivityVisible ? " is-active" : ""}`}
             type="button"
             onClick={() => setConnectivityOpen(true)}
-          >
-            Connectivité
-          </button>
+          >{t("Connectivité")}</button>
           <details className="image-menu session-menu" ref={sessionMenuRef}>
-            <summary>Session</summary>
+            <summary>{t("Session")}</summary>
             <div className="image-menu-popover">
               <button type="button" onClick={(event) => {
                 event.currentTarget.closest("details")?.removeAttribute("open");
                 resetWorkspaceDisplay();
-              }}><RotateCcw size={15} aria-hidden="true" /> Rétablir l'affichage</button>
+              }}><RotateCcw size={15} aria-hidden="true" /> {t("Rétablir l'affichage")}</button>
               <button className="is-danger" type="button" onClick={(event) => {
                 event.currentTarget.closest("details")?.removeAttribute("open");
                 void resetEntireSession();
-              }}>Supprimer les données de session</button>
+              }}>{t("Supprimer les données de session")}</button>
             </div>
           </details>
         </div>
@@ -1903,32 +1897,30 @@ export default function App() {
           >
             <header className="registration-dialog-header">
               <div>
-                <h2 id="registration-title">{registrationState.hasViewerAssets && !registrationFile ? "Image de référence" : "Importer une image"}</h2>
+                <h2 id="registration-title">{registrationState.hasViewerAssets && !registrationFile ? t("Image de référence") : t("Importer une image")}</h2>
               </div>
               <button
-                aria-label="Fermer"
+                aria-label={t("Fermer")}
                 className="dialog-close"
                 type="button"
                 onClick={() => setRegistrationOpen(false)}
-              >
-                ×
-              </button>
+              >{t("×")}</button>
             </header>
             <div className="registration-dialog-body">
               {imageWorkflow("image")}
               <div className="registration-dataset">
                 <div>
                   <strong>
-                    {registrationFile?.name ?? registrationState.fileName ?? "Aucune image sélectionnée"}
+                    {registrationFile?.name ?? registrationState.fileName ?? t("Aucune image sélectionnée")}
                   </strong>
-                  <span>{registrationFile ? `${(registrationFile.size / 1024 / 1024).toFixed(1)} Mo · NIfTI 3D` : "Image de référence · espace natif"}</span>
+                  <span>{registrationFile ? t(`${(registrationFile.size / 1024 / 1024).toFixed(1)} Mo · NIfTI 3D`) : t("Image de référence · espace natif")}</span>
                 </div>
               </div>
 
               <label className="registration-file-picker">
                 <input
                   type="file"
-                  aria-label="Image NIfTI à importer"
+                  aria-label={t("Image NIfTI à importer")}
                   accept=".nii,.nii.gz,application/gzip"
                   disabled={registrationState.status === "uploading" || registrationState.status === "running"}
                   onClick={(event) => {
@@ -1944,22 +1936,22 @@ export default function App() {
                     }));
                   }}
                 />
-                <span>{registrationFile ? "Changer d'image" : "Choisir une image"}</span>
-                <small>.nii ou .nii.gz</small>
+                <span>{registrationFile ? t("Changer d'image") : t("Choisir une image")}</span>
+                <small>{t(".nii ou .nii.gz")}</small>
               </label>
               {registrationFile && registrationState.hasViewerAssets && !imageWorkBusy && (
                 <button type="button" className="workflow-text-action" onClick={() => {
                   setRegistrationFile(null);
                   setRegistrationState((current) => ({ ...current, status: "completed", message: "Image disponible" }));
-                }}>Conserver l'image actuelle</button>
+                }}>{t("Conserver l'image actuelle")}</button>
               )}
               <WorkflowStatus
                 status={registrationPending ? "running" : registrationState.status}
-                title={registrationState.status === "failed" ? "Import interrompu"
-                  : registrationState.status === "uploading" ? "Transfert de l'image"
-                    : registrationPending || registrationState.status === "running" ? "Préparation du cerveau et des coupes"
-                      : registrationFile ? "Image prête à importer"
-                        : registrationState.hasViewerAssets ? "Image disponible" : "Choisir une image NIfTI"}
+                title={registrationState.status === "failed" ? t("Import interrompu")
+                  : registrationState.status === "uploading" ? t("Transfert de l'image")
+                    : registrationPending || registrationState.status === "running" ? t("Préparation du cerveau et des coupes")
+                      : registrationFile ? t("Image prête à importer")
+                        : registrationState.hasViewerAssets ? t("Image disponible") : t("Choisir une image NIfTI")}
                 message={registrationState.message} logs={registrationFile && registrationState.status === "idle" ? [] : registrationState.logTail}
               />
             </div>
@@ -1972,12 +1964,10 @@ export default function App() {
                     setViewerSource("subject");
                     setRegistrationOpen(false);
                   }}
-                >
-                  Afficher l’image
-                </button>
+                >{t("Afficher l’image")}</button>
               )}
               <button type="button" onClick={() => setRegistrationOpen(false)}>
-                {imageWorkBusy ? "Continuer en arrière-plan" : "Fermer"}
+                {imageWorkBusy ? t("Continuer en arrière-plan") : t("Fermer")}
               </button>
               <button
                 className="is-primary"
@@ -1995,11 +1985,11 @@ export default function App() {
                 }}
               >
                 {registrationState.status === "uploading"
-                  ? "Import en cours"
+                  ? t("Import en cours")
                   : registrationPending || registrationState.status === "running"
-                  ? "Préparation en cours"
-                  : registrationFile ? registrationState.status === "failed" ? "Réessayer l'import" : "Importer l'image"
-                    : registrationState.hasViewerAssets ? "Ouvrir le recalage" : "Importer l'image"}
+                  ? t("Préparation en cours")
+                  : registrationFile ? registrationState.status === "failed" ? t("Réessayer l'import") : t("Importer l'image")
+                    : registrationState.hasViewerAssets ? t("Ouvrir le recalage") : t("Importer l'image")}
               </button>
             </footer>
           </section>
@@ -2015,57 +2005,55 @@ export default function App() {
           >
             <header className="registration-dialog-header">
               <div>
-                <h2 id="allen-registration-title">Recalage Allen</h2>
+                <h2 id="allen-registration-title">{t("Recalage Allen")}</h2>
               </div>
               <button
-                aria-label="Fermer"
+                aria-label={t("Fermer")}
                 className="dialog-close"
                 type="button"
                 onClick={() => setAllenRegistrationOpen(false)}
-              >
-                ×
-              </button>
+              >{t("×")}</button>
             </header>
             <div className="registration-dialog-body">
               {imageWorkflow("atlas")}
               <div className="registration-dataset">
                 <div>
-                  <strong>{registrationState.fileName ?? "Image importée"}</strong>
-                  <span>Atlas Allen CCF 2017 · espace natif de l'image</span>
+                  <strong>{registrationState.fileName ?? t("Image importée")}</strong>
+                  <span>{t("Atlas Allen CCF 2017 · espace natif de l'image")}</span>
                 </div>
               </div>
               <WorkflowStatus status={allenRegistrationState.status}
-                title={allenRegistrationState.status === "running" ? "Recalage et préparation des régions en cours"
-                  : allenRegistrationState.status === "failed" ? "Recalage interrompu"
-                    : subjectAnnotationsAvailable ? "Régions Allen disponibles"
-                      : allenRegistrationState.status === "completed" ? "Régions à préparer" : "Recalage non lancé"}
+                title={allenRegistrationState.status === "running" ? t("Recalage et préparation des régions en cours")
+                  : allenRegistrationState.status === "failed" ? t("Recalage interrompu")
+                    : subjectAnnotationsAvailable ? t("Régions Allen disponibles")
+                      : allenRegistrationState.status === "completed" ? t("Régions à préparer") : t("Recalage non lancé")}
                 message={allenRegistrationState.message} logs={allenRegistrationState.logTail} />
             </div>
             <footer className="registration-dialog-actions">
               <button type="button" onClick={() => setAllenRegistrationOpen(false)}>
-                {allenRegistrationState.status === "running" ? "Continuer en arrière-plan" : "Fermer"}
+                {allenRegistrationState.status === "running" ? t("Continuer en arrière-plan") : t("Fermer")}
               </button>
               <button
                 className={subjectAnnotationsAvailable ? undefined : "is-primary"}
                 type="button"
                 disabled={imageWorkBusy || !registrationState.hasViewerAssets}
                 onClick={() => {
-                  if (!subjectAnnotationsAvailable || window.confirm("Relancer le recalage et recalculer les régions Allen de cette image ?")) {
+                  if (!subjectAnnotationsAvailable || window.confirm(t("Relancer le recalage et recalculer les régions Allen de cette image ?"))) {
                     void startAllenRegistration();
                   }
                 }}
               >
                 {subjectAnnotationsAvailable
-                  ? "Recalculer les régions"
+                  ? t("Recalculer les régions")
                   : allenRegistrationState.status === "completed"
-                    ? "Préparer les régions"
-                    : allenRegistrationState.status === "failed" ? "Réessayer le recalage" : "Lancer le recalage"}
+                    ? t("Préparer les régions")
+                    : allenRegistrationState.status === "failed" ? t("Réessayer le recalage") : t("Lancer le recalage")}
               </button>
               {subjectAnnotationsAvailable && <button type="button" className="is-primary" onClick={() => {
                 setViewerSource("subject");
                 setShowImportedAnnotations(true);
                 setAllenRegistrationOpen(false);
-              }}>Voir les régions</button>}
+              }}>{t("Voir les régions")}</button>}
             </footer>
           </section>
         </div>
@@ -2080,27 +2068,25 @@ export default function App() {
           >
             <header className="registration-dialog-header">
               <div>
-                <h2 id="modalities-title">Modalités</h2>
+                <h2 id="modalities-title">{t("Modalités")}</h2>
               </div>
               <button
-                aria-label="Fermer"
+                aria-label={t("Fermer")}
                 className="dialog-close"
                 type="button"
                 onClick={() => setModalitiesOpen(false)}
-              >
-                ×
-              </button>
+              >{t("×")}</button>
             </header>
             <div className="registration-dialog-body modalities-body">
               {imageWorkflow("modalities")}
-              <div className="workflow-reference"><span>Image de référence</span><strong>{registrationState.fileName ?? "Aucune image importée"}</strong></div>
+              <div className="workflow-reference"><span>{t("Image de référence")}</span><strong>{registrationState.fileName ?? t("Aucune image importée")}</strong></div>
               <section className="modality-import-panel">
                 <label className="modality-name-field">
-                  <span>Nom de la modalité</span>
+                  <span>{t("Nom de la modalité")}</span>
                   <input
                     type="text"
                     maxLength={80}
-                    placeholder="Ex. T2 map, ADC, FA"
+                    placeholder={t("Ex. T2 map, ADC, FA")}
                     value={modalityName}
                     disabled={modalityState.status === "uploading"}
                     onChange={(event) => setModalityName(event.currentTarget.value)}
@@ -2109,7 +2095,7 @@ export default function App() {
                 <label className="registration-file-picker">
                   <input
                     type="file"
-                    aria-label="Fichier de modalité NIfTI"
+                    aria-label={t("Fichier de modalité NIfTI")}
                     accept=".nii,.nii.gz,application/gzip"
                     disabled={modalityState.status === "uploading"}
                     onClick={(event) => { event.currentTarget.value = ""; }}
@@ -2121,8 +2107,8 @@ export default function App() {
                       }
                     }}
                   />
-                  <small>Fichier NIfTI</small>
-                  <span>{modalityFile ? "Changer de fichier" : "Choisir un fichier"}</span>
+                  <small>{t("Fichier NIfTI")}</small>
+                  <span>{modalityFile ? t("Changer de fichier") : t("Choisir un fichier")}</span>
                 </label>
                 <button
                   type="button"
@@ -2130,15 +2116,15 @@ export default function App() {
                   disabled={!registrationState.hasViewerAssets || !modalityFile || !modalityName.trim() || modalityState.status === "uploading"}
                   onClick={() => void importModality()}
                 >
-                  {modalityState.status === "uploading" ? "Validation en cours" : "Importer"}
+                  {modalityState.status === "uploading" ? t("Validation en cours") : t("Importer")}
                 </button>
               </section>
               {modalityFile && <p className="modality-selected-file">{modalityFile.name}</p>}
               <WorkflowStatus status={modalityState.status}
-                title={modalityState.status === "uploading" ? "Import et vérification de la grille"
-                  : modalityState.status === "failed" ? "Opération sur la modalité interrompue"
-                    : modalityState.modalities.length > 0 ? `${modalityState.modalities.length} modalité${modalityState.modalities.length > 1 ? "s" : ""} disponible${modalityState.modalities.length > 1 ? "s" : ""}`
-                      : "Aucune modalité complémentaire"}
+                title={modalityState.status === "uploading" ? t("Import et vérification de la grille")
+                  : modalityState.status === "failed" ? t("Opération sur la modalité interrompue")
+                    : modalityState.modalities.length > 0 ? t(`${modalityState.modalities.length} modalité${modalityState.modalities.length > 1 ? "s" : ""} disponible${modalityState.modalities.length > 1 ? "s" : ""}`)
+                      : t("Aucune modalité complémentaire")}
                 message={modalityState.message} />
               {modalityState.modalities.length > 0 && <div className="modality-list">
                 {modalityState.modalities.map((modality) => (
@@ -2149,20 +2135,20 @@ export default function App() {
                         <span>{modality.sourceFile}</span>
                       </div>
                       <span className={`modality-geometry is-${modality.geometryStatus}`}
-                        title={modality.geometryStatus === "compatible" ? "Grille identique à l'image de référence" : "Grille adaptée à l'image de référence, sans recalage anatomique supplémentaire"}>
+                        title={modality.geometryStatus === "compatible" ? t("Grille identique à l'image de référence") : t("Grille adaptée à l'image de référence, sans recalage anatomique supplémentaire")}>
                         {modality.geometryStatus === "compatible"
-                          ? "Grille compatible"
-                          : "Rééchantillonnée"}
+                          ? t("Grille compatible")
+                          : t("Rééchantillonnée")}
                       </span>
                     </div>
                     <dl>
-                      <div><dt>Dimensions</dt><dd>{modality.shape.join(" × ")}</dd></div>
+                      <div><dt>{t("Dimensions")}</dt><dd>{modality.shape.join(t(" × "))}</dd></div>
                       <div>
-                        <dt>Espacement</dt>
-                        <dd>{modality.spacingMm.map((value) => value.toFixed(3)).join(" × ")} mm</dd>
+                        <dt>{t("Espacement")}</dt>
+                        <dd>{modality.spacingMm.map((value) => value.toFixed(3)).join(t(" × "))} {t("mm")}</dd>
                       </div>
                       <div>
-                        <dt>Valeurs</dt>
+                        <dt>{t("Valeurs")}</dt>
                         <dd>{modality.valueRange.map((value) => value.toPrecision(4)).join(" – ")}</dd>
                       </div>
                     </dl>
@@ -2171,25 +2157,23 @@ export default function App() {
                         setActiveModalityId(modality.id);
                         setViewerSource("subject");
                         setModalitiesOpen(false);
-                      }}>{viewerSource === "subject" && activeModalityId === modality.id ? "Affichée" : "Afficher"}</button>
+                      }}>{viewerSource === "subject" && activeModalityId === modality.id ? t("Affichée") : t("Afficher")}</button>
                     <button
                       type="button"
                       className="modality-delete"
                       onClick={() => {
-                        if (window.confirm(`Supprimer la modalité « ${modality.name} » ?`)) {
+                        if (window.confirm(t(`Supprimer la modalité « ${modality.name} » ?`))) {
                           void deleteModality(modality.id);
                         }
                       }}
-                    >
-                      Supprimer
-                    </button>
+                    >{t("Supprimer")}</button>
                     </div>
                   </article>
                 ))}
               </div>}
             </div>
             <footer className="registration-dialog-actions">
-              <button type="button" onClick={() => setModalitiesOpen(false)}>Fermer</button>
+              <button type="button" onClick={() => setModalitiesOpen(false)}>{t("Fermer")}</button>
             </footer>
           </section>
         </div>
@@ -2204,25 +2188,23 @@ export default function App() {
           >
             <header className="registration-dialog-header">
               <div>
-                <p className="panel-kicker">Données quantitatives</p>
-                <h2 id="region-export-title">Exporter les valeurs</h2>
+                <p className="panel-kicker">{t("Données quantitatives")}</p>
+                <h2 id="region-export-title">{t("Exporter les valeurs")}</h2>
               </div>
               <button
-                aria-label="Fermer"
+                aria-label={t("Fermer")}
                 className="dialog-close"
                 type="button"
                 onClick={() => setRegionExportOpen(false)}
-              >
-                ×
-              </button>
+              >{t("×")}</button>
             </header>
             <div className="registration-dialog-body region-export-body">
               <div className="region-export-toolbar">
                 <label>
-                  <span className="visually-hidden">Rechercher une région</span>
+                  <span className="visually-hidden">{t("Rechercher une région")}</span>
                   <input
                     type="search"
-                    placeholder="Nom, acronyme ou identifiant"
+                    placeholder={t("Nom, acronyme ou identifiant")}
                     value={regionExportSearch}
                     onChange={(event) => setRegionExportSearch(event.currentTarget.value)}
                   />
@@ -2230,16 +2212,12 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setRegionExportIds(new Set(exportableRegions.map((region) => region.id)))}
-                >
-                  Tout sélectionner
-                </button>
-                <button type="button" onClick={() => setRegionExportIds(new Set())}>
-                  Aucun
-                </button>
+                >{t("Tout sélectionner")}</button>
+                <button type="button" onClick={() => setRegionExportIds(new Set())}>{t("Aucun")}</button>
               </div>
               <div className="region-export-count">
-                <strong>{regionExportIds.size}</strong> région{regionExportIds.size > 1 ? "s" : ""} sélectionnée{regionExportIds.size > 1 ? "s" : ""}
-                <span>Modalité : {activeModality?.name ?? "indisponible"}</span>
+                <strong>{t(`${regionExportIds.size} ${regionExportIds.size === 1 ? "région sélectionnée" : "régions sélectionnées"}`)}</strong>
+                <span>{t("Modalité :")} {activeModality?.name ?? t("indisponible")}</span>
               </div>
               <div className="region-export-list" ref={regionExportListRef}>
                 {filteredExportRegions.map((structure) => (
@@ -2263,22 +2241,22 @@ export default function App() {
                   </label>
                 ))}
                 {filteredExportRegions.length === 0 && (
-                  <p className="region-search-empty">Aucune région trouvée</p>
+                  <p className="region-search-empty">{t("Aucune région trouvée")}</p>
                 )}
               </div>
               {regionExportError && (
-                <p className="registration-message is-error">{regionExportError}</p>
+                <p className="registration-message is-error">{t(regionExportError)}</p>
               )}
             </div>
             <footer className="registration-dialog-actions">
-              <button type="button" onClick={() => setRegionExportOpen(false)}>Annuler</button>
+              <button type="button" onClick={() => setRegionExportOpen(false)}>{t("Annuler")}</button>
               <button
                 type="button"
                 className="is-primary"
                 disabled={regionExportIds.size === 0 || regionExportPending}
                 onClick={() => void exportRegionValues()}
               >
-                {regionExportPending ? "Création du CSV" : "Exporter le CSV"}
+                {regionExportPending ? t("Création du CSV") : t("Exporter le CSV")}
               </button>
             </footer>
           </section>
@@ -2294,38 +2272,36 @@ export default function App() {
           >
             <header className="registration-dialog-header">
               <div>
-                <p className="panel-kicker">Allen Mouse Connectivity Atlas</p>
-                <h2 id="connectivity-title">Charger une expérience</h2>
+                <p className="panel-kicker">{t("Allen Mouse Connectivity Atlas")}</p>
+                <h2 id="connectivity-title">{t("Charger une expérience")}</h2>
               </div>
               <button
-                aria-label="Fermer"
+                aria-label={t("Fermer")}
                 className="dialog-close"
                 type="button"
                 onClick={() => setConnectivityOpen(false)}
-              >
-                ×
-              </button>
+              >{t("×")}</button>
             </header>
             <div className="registration-dialog-body">
               {registrationState.hasViewerAssets && <>
                 {imageWorkflow("connectivity")}
-                <div className="workflow-reference"><span>Image cible</span><strong>{registrationState.fileName}</strong></div>
+                <div className="workflow-reference"><span>{t("Image cible")}</span><strong>{registrationState.fileName}</strong></div>
                 {!subjectAnnotationsAvailable && <div className="workflow-prerequisite">
-                  <span>Projection sur l'image : recalage Allen requis</span>
-                  <button type="button" onClick={() => openImageTask("atlas")}>Régions Allen</button>
+                  <span>{t("Projection sur l'image : recalage Allen requis")}</span>
+                  <button type="button" onClick={() => openImageTask("atlas")}>{t("Régions Allen")}</button>
                 </div>}
               </>}
               <div className="registration-dataset">
                 <div>
                   <strong>
                     {connectivityState.experimentId
-                      ? `Expérience ${connectivityState.experimentId}`
-                      : "Projection Allen"}
+                      ? t(`Expérience ${connectivityState.experimentId}`)
+                      : t("Projection Allen")}
                   </strong>
-                  <span>Densité de projection et site d’injection · 50 µm</span>
+                  <span>{t("Densité de projection et site d’injection · 50 µm")}</span>
                 </div>
               </div>
-              <div className="connectivity-load-modes" role="tablist" aria-label="Méthode de sélection">
+              <div className="connectivity-load-modes" role="tablist" aria-label={t("Méthode de sélection")}>
                 <button
                   type="button"
                   role="tab"
@@ -2344,18 +2320,14 @@ export default function App() {
                         }
                       : current);
                   }}
-                >
-                  Par région
-                </button>
+                >{t("Par région")}</button>
                 <button
                   type="button"
                   role="tab"
                   aria-selected={connectivityLoadMode === "id"}
                   className={connectivityLoadMode === "id" ? "is-active" : ""}
                   onClick={() => setConnectivityLoadMode("id")}
-                >
-                  Par identifiant
-                </button>
+                >{t("Par identifiant")}</button>
               </div>
               {connectivityLoadMode === "region" ? (
                 <div className="connectivity-search-panel" role="tabpanel">
@@ -2366,21 +2338,21 @@ export default function App() {
                       void searchConnectivityExperiments();
                     }}
                   >
-                    <label htmlFor="connectivity-region-query">Région d'injection</label>
+                    <label htmlFor="connectivity-region-query">{t("Région d'injection")}</label>
                     <div>
                       <input
                         id="connectivity-region-query"
                         type="search"
                         value={connectivityRegionQuery}
                         disabled={connectivitySearchStatus === "loading" || connectivityState.status === "running"}
-                        placeholder="Ex. VISp, Isocortex ou 315"
+                        placeholder={t("Ex. VISp, Isocortex ou 315")}
                         onChange={(event) => setConnectivityRegionQuery(event.currentTarget.value)}
                       />
                       <button
                         type="submit"
                         disabled={connectivitySearchStatus === "loading" || connectivityState.status === "running"}
                       >
-                        {connectivitySearchStatus === "loading" ? "Recherche" : "Rechercher"}
+                        {connectivitySearchStatus === "loading" ? t("Recherche") : t("Rechercher")}
                       </button>
                     </div>
                   </form>
@@ -2388,7 +2360,7 @@ export default function App() {
                     className={`connectivity-search-message${connectivitySearchStatus === "failed" ? " is-error" : ""}`}
                     aria-live="polite"
                   >
-                    {connectivitySearchMessage}
+                    {t(connectivitySearchMessage)}
                   </p>
                   {connectivitySearchResults.length > 0 && (
                     <div className="connectivity-search-results">
@@ -2401,15 +2373,15 @@ export default function App() {
                           />
                           <div className="connectivity-experiment-main">
                             <strong>
-                              {experiment.primaryStructure.acronym || "Région Allen"}
+                              {experiment.primaryStructure.acronym || t("Région Allen")}
                               <span>#{experiment.id}</span>
                             </strong>
-                            <span>{experiment.primaryStructure.name || "Région principale non renseignée"}</span>
+                            <span>{experiment.primaryStructure.name || t("Région principale non renseignée")}</span>
                             <small>
-                              {experiment.transgenicLine || experiment.strain || "Expérience standard"}
+                              {experiment.transgenicLine || experiment.strain || t("Expérience standard")}
                               {experiment.sex ? ` · ${experiment.sex}` : ""}
                               {experiment.injectionVolumeMm3 !== null
-                                ? ` · ${experiment.injectionVolumeMm3.toFixed(3)} mm³`
+                                ? t(` · ${experiment.injectionVolumeMm3.toFixed(3)} mm³`)
                                 : ""}
                             </small>
                           </div>
@@ -2417,9 +2389,7 @@ export default function App() {
                             type="button"
                             disabled={connectivityState.status === "running"}
                             onClick={() => void startConnectivity(experiment.id, experiment)}
-                          >
-                            Charger
-                          </button>
+                          >{t("Charger")}</button>
                         </article>
                       ))}
                     </div>
@@ -2427,7 +2397,7 @@ export default function App() {
                 </div>
               ) : (
                 <label className="connectivity-form" role="tabpanel">
-                  <span>Identifiant de l’expérience Allen</span>
+                  <span>{t("Identifiant de l’expérience Allen")}</span>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -2435,35 +2405,31 @@ export default function App() {
                     disabled={connectivityState.status === "running"}
                     onChange={(event) => setConnectivityExperimentId(event.currentTarget.value)}
                   />
-                  <small>Exemple proposé par M2M : 100140756</small>
+                  <small>{t("Exemple proposé par M2M : 100140756")}</small>
                 </label>
               )}
               <WorkflowStatus status={connectivityState.status}
-                title={connectivityState.status === "running" ? "Préparation de l'expérience Allen"
-                  : connectivityState.status === "failed" ? "Chargement de l'expérience interrompu"
-                    : connectivityState.hasViewerAssets ? "Carte disponible dans l'atlas Allen" : "Aucune expérience chargée"}
+                title={connectivityState.status === "running" ? t("Préparation de l'expérience Allen")
+                  : connectivityState.status === "failed" ? t("Chargement de l'expérience interrompu")
+                    : connectivityState.hasViewerAssets ? t("Carte disponible dans l'atlas Allen") : t("Aucune expérience chargée")}
                 message={connectivityState.message} logs={connectivityState.logTail} />
               {connectivityState.nativeStatus !== "idle" && <WorkflowStatus status={connectivityState.nativeStatus}
-                title={connectivityState.nativeStatus === "running" ? "Projection dans l'image personnelle en cours"
-                  : connectivityState.nativeStatus === "failed" ? "Projection dans l'image interrompue"
-                    : "Carte disponible dans l'image personnelle"}
+                title={connectivityState.nativeStatus === "running" ? t("Projection dans l'image personnelle en cours")
+                  : connectivityState.nativeStatus === "failed" ? t("Projection dans l'image interrompue")
+                    : t("Carte disponible dans l'image personnelle")}
                 message={connectivityState.nativeMessage} logs={connectivityState.nativeLogTail} />}
             </div>
             <footer className="registration-dialog-actions">
               <button
                 type="button"
                 onClick={exploreExperiments}
-              >
-                Explorer les injections en 3D
-              </button>
+              >{t("Explorer les injections en 3D")}</button>
               {connectivityState.status === "running" && (
                 <button
                   className="is-danger"
                   type="button"
                   onClick={() => void cancelConnectivity()}
-                >
-                  Annuler le chargement
-                </button>
+                >{t("Annuler le chargement")}</button>
               )}
               {connectivityState.hasViewerAssets && (
                 <button
@@ -2473,9 +2439,7 @@ export default function App() {
                     setViewerSource("allen");
                     setConnectivityOpen(false);
                   }}
-                >
-                  Voir dans Allen
-                </button>
+                >{t("Voir dans Allen")}</button>
               )}
               {connectivityState.hasViewerAssets && subjectAnnotationsAvailable && (
                 <button
@@ -2492,19 +2456,19 @@ export default function App() {
                   }}
                 >
                   {connectivityState.nativeStatus === "running"
-                    ? "Projection en cours"
+                    ? t("Projection en cours")
                     : connectivityState.hasNativeViewerAssets
-                      ? "Voir dans mon image"
-                      : "Projeter sur l'image"}
+                      ? t("Voir dans mon image")
+                      : t("Projeter sur l'image")}
                 </button>
               )}
               {connectivityState.hasNativeViewerAssets && subjectAnnotationsAvailable && <button type="button"
                 disabled={imageWorkBusy || connectivityState.status === "running"}
                 onClick={() => {
-                  if (window.confirm("Recalculer la projection de cette expérience dans l'image personnelle ?")) void startNativeConnectivity();
-                }}>Recalculer la projection</button>}
+                  if (window.confirm(t("Recalculer la projection de cette expérience dans l'image personnelle ?"))) void startNativeConnectivity();
+                }}>{t("Recalculer la projection")}</button>}
               <button type="button" onClick={() => setConnectivityOpen(false)}>
-                {connectivityState.nativeStatus === "running" || connectivityState.status === "running" ? "Continuer en arrière-plan" : "Fermer"}
+                {connectivityState.nativeStatus === "running" || connectivityState.status === "running" ? t("Continuer en arrière-plan") : t("Fermer")}
               </button>
               {connectivityLoadMode === "id" && (
                 <button
@@ -2513,7 +2477,7 @@ export default function App() {
                   disabled={connectivityState.status === "running"}
                   onClick={() => void startConnectivity()}
                 >
-                  {connectivityState.status === "running" ? "Chargement en cours" : "Charger"}
+                  {connectivityState.status === "running" ? t("Chargement en cours") : t("Charger")}
                 </button>
               )}
             </footer>
@@ -2523,22 +2487,22 @@ export default function App() {
       <Workspace resetRevision={sceneResetKey}>
         <section
           className={`viewer${sidebarCollapsed ? " is-sidebar-collapsed" : ""}${activeRegion ? " is-hovering" : ""}`}
-          aria-label="Vue 3D des regions anatomiques Allen"
+          aria-label={t("Vue 3D des regions anatomiques Allen")}
         >
-          <aside className="viewer-sidebar" aria-label="Réglages de la vue 3D">
+          <aside className="viewer-sidebar" aria-label={t("Réglages de la vue 3D")}>
             <header className="viewer-sidebar-header">
-              <span>{sidebarCollapsed ? "3D" : "Vue 3D"}</span>
+              <span>{sidebarCollapsed ? "3D" : t("Vue 3D")}</span>
               <div className="viewer-sidebar-actions">
                 {!sidebarCollapsed && <button type="button" className="sidebar-toggle"
-                  aria-label="Recentrer la vue 3D" title="Recentrer la vue 3D"
+                  aria-label={t("Recentrer la vue 3D")} title={t("Recentrer la vue 3D")}
                   onClick={() => setCameraResetRevision((current) => current + 1)}>
                   <Focus size={16} aria-hidden="true" />
                 </button>}
               <button
                 type="button"
                 className="sidebar-toggle"
-                aria-label={sidebarCollapsed ? "Ouvrir le panneau 3D" : "Réduire le panneau 3D"}
-                title={sidebarCollapsed ? "Ouvrir le panneau" : "Réduire le panneau"}
+                aria-label={sidebarCollapsed ? t("Ouvrir le panneau 3D") : t("Réduire le panneau 3D")}
+                title={sidebarCollapsed ? t("Ouvrir le panneau") : t("Réduire le panneau")}
                 onClick={() => setSidebarCollapsed((current) => !current)}
               >
                 {sidebarCollapsed ? <ChevronRight size={16} aria-hidden="true" /> : <ChevronLeft size={16} aria-hidden="true" />}
@@ -2548,8 +2512,8 @@ export default function App() {
             {!sidebarCollapsed && (
               <div className="viewer-sidebar-content">
                 <section className="sidebar-section">
-                  <p className="sidebar-section-title">Affichage</p>
-                  <div className="slice-3d-mode sidebar-mode" role="group" aria-label="Mode de coupe 3D">
+                  <p className="sidebar-section-title">{t("Affichage")}</p>
+                  <div className="slice-3d-mode sidebar-mode" role="group" aria-label={t("Mode de coupe 3D")}>
                     {(["none", "plane", "clip"] as Slice3DMode[]).map((mode) => (
                       <button
                         type="button"
@@ -2561,14 +2525,14 @@ export default function App() {
                           setSlice3DMode(mode);
                         }}
                       >
-                        {mode === "none" ? "Cerveau entier" : mode === "plane" ? "Plan de coupe" : "Cerveau coupé"}
+                        {mode === "none" ? t("Cerveau entier") : mode === "plane" ? t("Plan de coupe") : t("Cerveau coupé")}
                       </button>
                     ))}
                   </div>
                   {slice3DMode === "clip" && (
                     <div className="clip-side-control sidebar-clip-control">
-                      <span>Côté conservé</span>
-                      <div role="group" aria-label="Côté anatomique conservé">
+                      <span>{t("Côté conservé")}</span>
+                      <div role="group" aria-label={t("Côté anatomique conservé")}>
                         {(["negative", "positive"] as ClipDirection[]).map((direction) => (
                           <button
                             type="button"
@@ -2581,8 +2545,8 @@ export default function App() {
                             }}
                           >
                             {direction === "negative"
-                              ? activeSlice.negativeSide
-                              : activeSlice.positiveSide}
+                              ? t(activeSlice.negativeSide)
+                              : t(activeSlice.positiveSide)}
                           </button>
                         ))}
                       </div>
@@ -2590,7 +2554,7 @@ export default function App() {
                   )}
                   {(experimentExplorerActive || connectivityVisible || slice3DMode === "clip" || hasRegionSelection) && <div className="opacity-control">
                     <div className="tool-heading">
-                      <label htmlFor="context-opacity">Opacité du contexte</label>
+                      <label htmlFor="context-opacity">{t("Opacité du contexte")}</label>
                       <output htmlFor="context-opacity">{Math.round(brainOpacity * 100)}%</output>
                     </div>
                     <input
@@ -2605,30 +2569,30 @@ export default function App() {
                   </div>}
                 </section>
                 {viewerSource === "subject" && !subjectAnnotationsAvailable && <section className="subject-next-action">
-                  <strong>Régions Allen</strong>
-                  <span>{allenRegistrationState.status === "running" ? "Recalage en cours"
-                    : allenRegistrationState.status === "failed" ? "Recalage interrompu" : "Non calculées"}</span>
+                  <strong>{t("Régions Allen")}</strong>
+                  <span>{allenRegistrationState.status === "running" ? t("Recalage en cours")
+                    : allenRegistrationState.status === "failed" ? t("Recalage interrompu") : t("Non calculées")}</span>
                   <button type="button" onClick={() => openImageTask("atlas")}>
-                    {allenRegistrationState.status === "running" ? "Suivre le recalage" : "Gérer le recalage"}
+                    {allenRegistrationState.status === "running" ? t("Suivre le recalage") : t("Gérer le recalage")}
                   </button>
                 </section>}
                 <section
                   className={`region-picker${viewerSource === "subject" && !subjectAnnotationsAvailable ? " is-hidden" : ""}`}
-                  aria-label="Régions anatomiques"
+                  aria-label={t("Régions anatomiques")}
                 >
                   <div className="region-picker-heading">
-                    <span>Régions</span>
+                    <span>{t("Régions")}</span>
                     <span>
                       {detailedAnnotations
-                        ? `${detailedAnnotations.structure_count} annotations`
-                        : `${visibleRegionCount}/${REGIONS.length} visibles`}
+                        ? t(`${detailedAnnotations.structure_count} annotations`)
+                        : t(`${visibleRegionCount}/${REGIONS.length} visibles`)}
                     </span>
                   </div>
                   <label className="region-search">
-                    <span className="visually-hidden">Rechercher une région</span>
+                    <span className="visually-hidden">{t("Rechercher une région")}</span>
                     <input
                       type="search"
-                      placeholder="Nom, acronyme ou identifiant"
+                      placeholder={t("Nom, acronyme ou identifiant")}
                       value={regionSearch}
                       onChange={(event) => setRegionSearch(event.currentTarget.value)}
                     />
@@ -2641,16 +2605,15 @@ export default function App() {
                         onChange={toggleWholeBrain}
                       />
                       <span className="color-swatch whole-brain-swatch" aria-hidden="true" />
-                      <span>Cerveau complet</span>
+                      <span>{t("Cerveau complet")}</span>
                     </label>
                     <button
                       type="button"
                       className="region-display-reset"
                       onClick={resetRegionDisplay}
-                      title="Rétablir la visibilité des régions et quitter l'isolation"
+                      title={t("Rétablir la visibilité des régions et quitter l'isolation")}
                     >
-                      <RotateCcw size={14} aria-hidden="true" /> Rétablir
-                    </button>
+                      <RotateCcw size={14} aria-hidden="true" /> {t("Rétablir")}</button>
                   </div>
                   <div className="region-picker-list">
                     {detailedAnnotations ? (
@@ -2664,7 +2627,7 @@ export default function App() {
                         structures={detailedAnnotations.structures}
                       />
                     ) : (
-                      <p className="region-search-empty">Chargement des annotations</p>
+                      <p className="region-search-empty">{t("Chargement des annotations")}</p>
                     )}
                   </div>
                 </section>
@@ -2684,43 +2647,43 @@ export default function App() {
                   <p className="region-info-label">
                     {hasRegionSelection ? <LockKeyhole size={13} aria-hidden="true" /> : <MousePointer2 size={13} aria-hidden="true" />}
                     {selectedDetailedRegionId === detailRegion.id
-                      ? "Sélection verrouillée"
+                      ? t("Sélection verrouillée")
                       : selectedRegionId === detailRegion.id
-                        ? "Sélection verrouillée"
-                        : "Aperçu au survol"}
+                        ? t("Sélection verrouillée")
+                        : t("Aperçu au survol")}
                   </p>
                   <h2>{detailRegion.name}</h2>
                 </div>
               </div>
               <dl>
                 <div>
-                  <dt>Acronyme</dt>
+                  <dt>{t("Acronyme")}</dt>
                   <dd>{detailRegion.acronym}</dd>
                 </div>
                 <div>
-                  <dt>Identifiant</dt>
+                  <dt>{t("Identifiant")}</dt>
                   <dd>{detailRegion.id}</dd>
                 </div>
                 <div>
-                  <dt>Couleur</dt>
+                  <dt>{t("Couleur")}</dt>
                   <dd>{detailRegion.color.toUpperCase()}</dd>
                 </div>
                 <div>
-                  <dt>Parent</dt>
+                  <dt>{t("Parent")}</dt>
                   <dd>
                     {detailRegion.parentName
                       ? `${detailRegion.parentName} (${detailRegion.parentId})`
-                      : "Aucun"}
+                      : t("Aucun")}
                   </dd>
                 </div>
               </dl>
               {(selectedDetailedRegionId === detailRegion.id || selectedRegionId === detailRegion.id) && (
                 <div className="region-actions">
                   <button type="button" onClick={isolateSelectedRegion}>
-                    {isolationSnapshot ? "Retour" : "Isoler"}
+                    {isolationSnapshot ? t("Retour") : t("Isoler")}
                   </button>
-                  <button type="button" onClick={hideSelectedRegion}>Masquer</button>
-                  <button type="button" onClick={clearSelectedRegion} title="Libérer la sélection de région"><X size={14} aria-hidden="true" /> Libérer</button>
+                  <button type="button" onClick={hideSelectedRegion}>{t("Masquer")}</button>
+                  <button type="button" onClick={clearSelectedRegion} title={t("Libérer la sélection de région")}><X size={14} aria-hidden="true" /> {t("Libérer")}</button>
                 </div>
               )}
                     </aside>
@@ -2771,9 +2734,7 @@ export default function App() {
             {sceneReady ? (
             <Suspense
               fallback={
-                <div className="scene-loading" role="status">
-                  Chargement de la vue 3D
-                </div>
+                <div className="scene-loading" role="status">{t("Chargement de la vue 3D")}</div>
               }
             >
               <AtlasScene
@@ -2875,61 +2836,58 @@ export default function App() {
               />
             </Suspense>
             ) : (
-              <div className="scene-loading" role="status">
-                Chargement de la vue 3D
-              </div>
+              <div className="scene-loading" role="status">{t("Chargement de la vue 3D")}</div>
             )}
             </div>
             {viewerSource === "subject" && activeModality && measuredRegionId !== null && (
               <section className="region-measurements-panel" aria-live="polite">
                 <header>
                   <div>
-                    <p>Mesures régionales</p>
-                    <h2>{regionStatistics?.region_name ?? detailRegion?.name ?? "Région Allen"}</h2>
+                    <p>{t("Mesures régionales")}</p>
+                    <h2>{regionStatistics?.region_name ?? detailRegion?.name ?? t("Région Allen")}</h2>
                   </div>
                   <span>{activeModality.name}</span>
                 </header>
                 {regionStatisticsPending && (
-                  <div className="region-measurements-status">Calcul en cours</div>
+                  <div className="region-measurements-status">{t("Calcul en cours")}</div>
                 )}
                 {regionStatisticsError && (
-                  <div className="region-measurements-status is-error">{regionStatisticsError}</div>
+                  <div className="region-measurements-status is-error">{t(regionStatisticsError)}</div>
                 )}
                 {regionStatistics && (
                   <>
                     <dl className="region-measurements-grid">
-                      <div><dt>Voxels mesurés</dt><dd>{regionStatistics.valid_voxels}</dd></div>
-                      <div><dt>Volume</dt><dd>{formatMeasurement(regionStatistics.sampled_volume_mm3)} mm³</dd></div>
-                      <div><dt>Moyenne</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.mean) : "n/a"}</dd></div>
-                      <div><dt>Médiane</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.median) : "n/a"}</dd></div>
-                      <div><dt>Écart-type</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.std) : "n/a"}</dd></div>
-                      <div><dt>Minimum</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.min) : "n/a"}</dd></div>
-                      <div><dt>Maximum</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.max) : "n/a"}</dd></div>
-                      <div><dt>Percentile 5</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.p05) : "n/a"}</dd></div>
-                      <div><dt>Percentile 95</dt><dd>{regionStatistics.statistics ? formatMeasurement(regionStatistics.statistics.p95) : "n/a"}</dd></div>
+                      <div><dt>{t("Voxels mesurés")}</dt><dd>{regionStatistics.valid_voxels}</dd></div>
+                      <div><dt>{t("Volume")}</dt><dd>{formatValue(regionStatistics.sampled_volume_mm3)} {t("mm³")}</dd></div>
+                      <div><dt>{t("Moyenne")}</dt><dd>{regionStatistics.statistics ? formatValue(regionStatistics.statistics.mean) : "n/a"}</dd></div>
+                      <div><dt>{t("Médiane")}</dt><dd>{regionStatistics.statistics ? formatValue(regionStatistics.statistics.median) : "n/a"}</dd></div>
+                      <div><dt>{t("Écart-type")}</dt><dd>{regionStatistics.statistics ? formatValue(regionStatistics.statistics.std) : "n/a"}</dd></div>
+                      <div><dt>{t("Minimum")}</dt><dd>{regionStatistics.statistics ? formatValue(regionStatistics.statistics.min) : "n/a"}</dd></div>
+                      <div><dt>{t("Maximum")}</dt><dd>{regionStatistics.statistics ? formatValue(regionStatistics.statistics.max) : "n/a"}</dd></div>
+                      <div><dt>{t("Percentile 5")}</dt><dd>{regionStatistics.statistics ? formatValue(regionStatistics.statistics.p05) : "n/a"}</dd></div>
+                      <div><dt>{t("Percentile 95")}</dt><dd>{regionStatistics.statistics ? formatValue(regionStatistics.statistics.p95) : "n/a"}</dd></div>
                     </dl>
                     <p className="region-measurements-note">
-                      {regionStatistics.excluded_voxels} voxels nuls ou non finis exclus · sous-régions incluses
-                    </p>
+                      {regionStatistics.excluded_voxels} {t("voxels nuls ou non finis exclus · sous-régions incluses")}</p>
                   </>
                 )}
               </section>
             )}
           </div>
         </section>
-        <section className="slice-view" aria-label={activeSlice.title}>
+        <section className="slice-view" aria-label={t(activeSlice.title)}>
           <header className="panel-header">
             <div>
               <p className="panel-kicker">
                 {viewerSource === "subject"
-                  ? `${activeModality?.name ?? "Image importée"} · espace natif · ${Math.round(activeSliceSpacingMm * 1000)} µm`
-                  : "Reference et annotations"}
+                  ? t(`${activeModality?.name ?? t("Image importée")} · espace natif · ${Math.round(activeSliceSpacingMm * 1000)} µm`)
+                  : t("Reference et annotations")}
               </p>
-              <h2>{activeSlice.title}</h2>
+              <h2>{t(activeSlice.title)}</h2>
             </div>
             {viewerSource === "subject" && modalityState.modalities.length > 0 && (
               <label className="slice-volume-selector">
-                <span>Volume</span>
+                <span>{t("Volume")}</span>
                 <select
                   value={activeModalityId ?? "rare"}
                   onChange={(event) => {
@@ -2937,7 +2895,7 @@ export default function App() {
                     setActiveModalityId(value === "rare" ? null : value);
                   }}
                 >
-                  <option value="rare">RARE</option>
+                  <option value="rare">{t("RARE")}</option>
                   {modalityState.modalities.map((modality) => (
                     <option value={modality.id} key={modality.id}>{modality.name}</option>
                   ))}
@@ -2945,12 +2903,10 @@ export default function App() {
               </label>
             )}
             <div className="slice-position">
-              <span className="slice-index">
-                Index {sliceIndex} / {activeSliceCount - 1}
+              <span className="slice-index">{t("Index")} {sliceIndex} / {activeSliceCount - 1}
               </span>
               <span className="slice-coordinate">
-                {(sliceIndex * activeSliceSpacingMm).toFixed(2)} mm
-              </span>
+                {(sliceIndex * activeSliceSpacingMm).toFixed(2)} {t("mm")}</span>
             </div>
           </header>
           <SliceToolbar
@@ -3137,7 +3093,7 @@ export default function App() {
               />
             )}
             <div className="slice-control-heading">
-              <label htmlFor="slice-position">Position {activeSlice.label.toLowerCase()}</label>
+              <label htmlFor="slice-position">{t(`Position ${activeSlice.label.toLowerCase()}`)}</label>
               <output htmlFor="slice-position">{sliceIndex}</output>
             </div>
             <input
@@ -3145,7 +3101,7 @@ export default function App() {
               type="range"
               className="viewer-range"
               style={{ "--range-progress": `${activeSliceCount > 1 ? sliceIndex / (activeSliceCount - 1) * 100 : 0}%` } as CSSProperties}
-              aria-valuetext={`Coupe ${sliceIndex} sur ${activeSliceCount - 1}`}
+              aria-valuetext={t(`Coupe ${sliceIndex} sur ${activeSliceCount - 1}`)}
               disabled={activeSliceCount <= 1}
               min="0"
               max={activeSliceCount - 1}

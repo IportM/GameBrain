@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n";
 import { AlertCircle, CheckCircle2, Circle, LoaderCircle } from "lucide-react";
 
 export type ImageTask = "image" | "atlas" | "modalities" | "connectivity";
@@ -19,6 +20,7 @@ export function ImageWorkflow({ active, hasImage, hasRegions, hasExperiment = fa
   busy: boolean;
   onNavigate: (task: ImageTask) => void;
 }) {
+  const { t } = useI18n();
   const tasks = [
     { id: "image" as const, name: "Image", purpose: "Importer ou remplacer l'image de référence", ready: hasImage, status: importStatus, enabled: true, waiting: "À importer" },
     { id: "atlas" as const, name: "Recalage", purpose: "Appliquer les régions Allen à l'image", ready: hasRegions, status: atlasStatus, enabled: hasImage, waiting: "À calculer" },
@@ -26,7 +28,7 @@ export function ImageWorkflow({ active, hasImage, hasRegions, hasExperiment = fa
     { id: "connectivity" as const, name: "Connectivité", purpose: "Projeter une expérience Allen dans l'image", ready: nativeConnectivity, status: nativeStatus, enabled: hasRegions, waiting: hasExperiment ? "À projeter" : "Expérience à choisir" },
   ];
   return (
-    <nav className="image-workflow" aria-label="Parcours de l'image personnelle">
+    <nav className="image-workflow" aria-label={t("Parcours de l'image personnelle")}>
       {tasks.map((task) => {
         const running = task.status === "running" || task.status === "uploading";
         const failed = task.status === "failed";
@@ -36,11 +38,11 @@ export function ImageWorkflow({ active, hasImage, hasRegions, hasExperiment = fa
           ? task.id === "modalities" ? `${modalityCount} importée${modalityCount > 1 ? "s" : ""}` : "Disponible"
           : !task.enabled ? task.id === "connectivity" ? "Recalage requis" : "Image requise" : task.waiting;
         return <button type="button" key={task.id} aria-current={active === task.id ? "step" : undefined}
-          disabled={disabled} title={`${task.purpose} (${status})`}
+          disabled={disabled} title={`${t(task.purpose)} (${t(status)})`}
           onClick={() => onNavigate(task.id)}>
           <Icon size={16} className={`${running ? "is-spinning" : ""}${failed ? " is-error" : ""}`} aria-hidden="true" />
-          <span><strong>{task.name}{task.id === "modalities" && modalityCount > 0 && <b className="workflow-count" aria-hidden="true">{modalityCount}</b>}</strong>
-            <small className={failed || running || !task.enabled ? undefined : "visually-hidden"}>{status}</small>
+          <span><strong>{t(task.name)}{task.id === "modalities" && modalityCount > 0 && <b className="workflow-count" aria-hidden="true">{modalityCount}</b>}</strong>
+            <small className={failed || running || !task.enabled ? undefined : "visually-hidden"}>{t(status)}</small>
           </span>
         </button>;
       })}
@@ -54,18 +56,19 @@ export function WorkflowStatus({ status, title, message, logs = [] }: {
   message: string;
   logs?: string[];
 }) {
+  const { t } = useI18n();
   const running = status === "uploading" || status === "running";
   const Icon = status === "failed" ? AlertCircle : running ? LoaderCircle : status === "completed" ? CheckCircle2 : Circle;
   return <div className={`workflow-status is-${status}`}>
     <div className="workflow-status-heading" role={status === "failed" ? "alert" : "status"}>
       <Icon size={18} className={running ? "is-spinning" : undefined} aria-hidden="true" />
-      <strong>{title}</strong>
+      <strong>{t(title)}</strong>
     </div>
-    {message && (running || status === "failed") && <p className="workflow-status-message" aria-live="polite">{message}</p>}
-    {running && <div className="registration-progress" role="progressbar" aria-label={title}><span /></div>}
+    {message && (running || status === "failed") && <p className="workflow-status-message" aria-live="polite">{t(message)}</p>}
+    {running && <div className="registration-progress" role="progressbar" aria-label={t(title)}><span /></div>}
     {logs.length > 0 && <details className="workflow-logs">
-      <summary>Journal technique</summary>
-      {message && !running && status !== "failed" && <p>{message}</p>}
+      <summary>{t("Journal technique")}</summary>
+      {message && !running && status !== "failed" && <p>{t(message)}</p>}
       <pre>{logs.join("\n")}</pre>
     </details>}
   </div>;

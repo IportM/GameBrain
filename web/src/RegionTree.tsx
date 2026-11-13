@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n";
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChevronDown, ChevronRight, LockKeyhole } from "lucide-react";
 
@@ -22,6 +23,7 @@ function RegionTreeComponent({
   selectedId,
   structures,
 }: RegionTreeProps) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const selectedRowRef = useRef<HTMLDivElement>(null);
   const { childrenByParent, roots, structureById } = useMemo(() => {
@@ -108,12 +110,12 @@ function RegionTreeComponent({
   }
 
   if (rows.length === 0) {
-    return <p className="region-search-empty">Aucune annotation trouvée</p>;
+    return <p className="region-search-empty">{t("Aucune annotation trouvée")}</p>;
   }
 
   return (
     <div className="region-tree-shell">
-      <div className="region-tree" role="tree" aria-label="Arborescence des régions Allen">
+      <div className="region-tree" role="tree" aria-label={t("Arborescence des régions Allen")}>
       {rows.map(({ depth, structure }) => {
         const children = childrenByParent.get(structure.id) ?? [];
         const isExpanded = searchVisibleIds !== null || expanded.has(structure.id);
@@ -134,7 +136,7 @@ function RegionTreeComponent({
               <button
                 type="button"
                 className="region-tree-toggle"
-                aria-label={`${isExpanded ? "Réduire" : "Développer"} ${structure.name}`}
+                aria-label={`${isExpanded ? t("Réduire") : t("Développer")} ${structure.name}`}
                 onClick={() => {
                   setExpanded((current) => {
                     const next = new Set(current);
@@ -152,8 +154,8 @@ function RegionTreeComponent({
             <input
               type="checkbox"
               checked={displayedIds.has(structure.id)}
-              aria-label={`Afficher ${structure.name} dans la vue 3D`}
-              title="Afficher ou masquer cette région dans la vue 3D"
+              aria-label={t(`Afficher ${structure.name} dans la vue 3D`)}
+              title={t("Afficher ou masquer cette région dans la vue 3D")}
               onChange={() => onToggleDisplayed(structure)}
             />
             <span
@@ -164,7 +166,7 @@ function RegionTreeComponent({
             <button
               type="button"
               className="region-tree-select"
-              title={`${structure.name} (${structure.acronym}) · Allen ${structure.id}`}
+              title={t(`${structure.name} (${structure.acronym}) · Allen ${structure.id}`)}
               onClick={() => onSelect(structure)}
             >
               <span>

@@ -1,8 +1,10 @@
+import { useI18n } from "./i18n";
 import { Children, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 const DEFAULT_SHARE = 0.6;
 
 export default function Workspace({ children, resetRevision }: { children: ReactNode; resetRevision: number }) {
+  const { t } = useI18n();
   const panels = Children.toArray(children);
   const element = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(1280);
@@ -31,11 +33,11 @@ export default function Workspace({ children, resetRevision }: { children: React
       style={{ "--workspace-share": clampedShare } as CSSProperties}>
       {panels[0]}
       <div className="workspace-divider" role="separator" tabIndex={0}
-        aria-label="Largeur de la vue 3D" aria-orientation="vertical"
+        aria-label={t("Largeur de la vue 3D")} aria-orientation="vertical"
         aria-valuemin={Math.round(minimum * 100)} aria-valuemax={Math.round(maximum * 100)}
         aria-valuenow={Math.round(clampedShare * 100)}
-        aria-valuetext={`${Math.round(clampedShare * 100)} % pour la vue 3D`}
-        title="Ajuster la largeur des vues. Double-clic pour rétablir."
+        aria-valuetext={t(`${Math.round(clampedShare * 100)} % pour la vue 3D`)}
+        title={t("Ajuster la largeur des vues. Double-clic pour rétablir.")}
         onDoubleClick={() => setShare(DEFAULT_SHARE)}
         onKeyDown={(event) => {
           if (event.key === "ArrowLeft" || event.key === "ArrowRight") {

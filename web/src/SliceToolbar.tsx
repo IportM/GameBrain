@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n";
 import { memo, type CSSProperties, type ReactNode } from "react";
 import { Check, MapPin } from "lucide-react";
 
@@ -98,19 +99,20 @@ function SliceToolbarComponent({
   onShowImportedAnnotationsChange,
   onShowImportedMaskChange,
 }: SliceToolbarProps) {
+  const { t } = useI18n();
   return (
     <div className="slice-toolbar-stack">
       {viewerSource === "allen" && !connectivityControlsVisible && (
         <div className="connectivity-explorer-return">
-          <span>Points d'injection</span>
-          {connectivityAvailable && <button type="button" onClick={onReturnToExperiment}>Revenir à la carte</button>}
+          <span>{t("Points d'injection")}</span>
+          {connectivityAvailable && <button type="button" onClick={onReturnToExperiment}>{t("Revenir à la carte")}</button>}
         </div>
       )}
       {(!connectivityAvailable || !connectivityControlsVisible) && library}
-      <div className="slice-command-bar" aria-label="Outils de la coupe">
+      <div className="slice-command-bar" aria-label={t("Outils de la coupe")}>
         {viewerSource === "allen" ? (
           <>
-            <div className="slice-layer-controls" aria-label="Affichage des annotations Allen">
+            <div className="slice-layer-controls" aria-label={t("Affichage des annotations Allen")}>
               <label>
                 <input
                   type="checkbox"
@@ -118,10 +120,10 @@ function SliceToolbarComponent({
                   onChange={(event) => onShowAllenRegionColorsChange(event.currentTarget.checked)}
                 />
                 <span className="layer-color is-allen" aria-hidden="true" />
-                <span>Régions</span>
+                <span>{t("Régions")}</span>
               </label>
             </div>
-            <div className="resolution-selector" role="group" aria-label="Résolution des coupes">
+            <div className="resolution-selector" role="group" aria-label={t("Résolution des coupes")}>
               {SLICE_RESOLUTIONS.map((resolution) => (
                 <button
                   type="button"
@@ -130,13 +132,12 @@ function SliceToolbarComponent({
                   key={resolution}
                   onClick={() => onResolutionChange(resolution)}
                 >
-                  {resolution} µm
-                </button>
+                  {resolution} {t("µm")}</button>
               ))}
             </div>
           </>
         ) : (
-          <div className="slice-layer-controls" aria-label="Superpositions de la coupe">
+          <div className="slice-layer-controls" aria-label={t("Superpositions de la coupe")}>
             <label>
               <input
                 type="checkbox"
@@ -144,7 +145,7 @@ function SliceToolbarComponent({
                 onChange={(event) => onShowBrainOnlyChange(event.currentTarget.checked)}
               />
               <span className="layer-color is-brain" aria-hidden="true" />
-              <span>Cerveau seul</span>
+              <span>{t("Cerveau seul")}</span>
             </label>
             {subjectAnnotationsAvailable && (
               <label>
@@ -154,7 +155,7 @@ function SliceToolbarComponent({
                   onChange={(event) => onShowImportedAnnotationsChange(event.currentTarget.checked)}
                 />
                 <span className="layer-color is-allen" aria-hidden="true" />
-                <span>Régions</span>
+                <span>{t("Régions")}</span>
               </label>
             )}
             <label>
@@ -164,19 +165,19 @@ function SliceToolbarComponent({
                 onChange={(event) => onShowImportedMaskChange(event.currentTarget.checked)}
               />
               <span className="layer-color is-mask" aria-hidden="true" />
-              <span>Masque</span>
+              <span>{t("Masque")}</span>
             </label>
           </div>
         )}
       </div>
       {connectivityAvailable && connectivityControlsVisible && (
-        <section className="connectivity-session" aria-label="Expérience de connectivité active">
+        <section className="connectivity-session" aria-label={t("Expérience de connectivité active")}>
           <div className="connectivity-session-header">
             <div className="connectivity-session-experiment">
-              {library || <strong>Expérience {connectivityState.experimentId}</strong>}
+              {library || <strong>{t("Expérience")} {connectivityState.experimentId}</strong>}
             </div>
             {viewerSource === "allen" && <button type="button" className="tool-icon-button"
-              title="Explorer les points d'injection" aria-label="Explorer les points d'injection"
+              title={t("Explorer les points d'injection")} aria-label={t("Explorer les points d'injection")}
               onClick={onExploreExperiments}><MapPin size={16} aria-hidden="true" /></button>}
             <label className="connectivity-master-toggle">
               <span className="connectivity-check">
@@ -187,22 +188,22 @@ function SliceToolbarComponent({
                 />
                 <Check size={12} className="connectivity-check-mark" aria-hidden="true" />
               </span>
-              <span>Afficher la carte</span>
+              <span>{t("Afficher la carte")}</span>
             </label>
           </div>
           {connectivityState.metadata && (
             <details className="connectivity-experiment-details">
-              <summary>{connectivityState.metadata.primaryStructure.name || "Informations sur l'expérience"}</summary>
+              <summary>{connectivityState.metadata.primaryStructure.name || t("Informations sur l'expérience")}</summary>
               <dl>
-                <div><dt>Identifiant</dt><dd>{connectivityState.experimentId}</dd></div>
-                <div><dt>Lignée</dt><dd>{connectivityState.metadata.transgenicLine || connectivityState.metadata.strain || "Non renseignée"}</dd></div>
-                <div><dt>Sexe</dt><dd>{connectivityState.metadata.sex || "Non renseigné"}</dd></div>
-                <div><dt>Injection</dt><dd>{connectivityState.metadata.injectionVolumeMm3 !== null ? `${connectivityState.metadata.injectionVolumeMm3.toFixed(3)} mm³` : "Non renseignée"}</dd></div>
+                <div><dt>{t("Identifiant")}</dt><dd>{connectivityState.experimentId}</dd></div>
+                <div><dt>{t("Lignée")}</dt><dd>{connectivityState.metadata.transgenicLine || connectivityState.metadata.strain || t("Non renseignée")}</dd></div>
+                <div><dt>{t("Sexe")}</dt><dd>{connectivityState.metadata.sex || t("Non renseigné")}</dd></div>
+                <div><dt>{t("Injection")}</dt><dd>{connectivityState.metadata.injectionVolumeMm3 !== null ? t(`${connectivityState.metadata.injectionVolumeMm3.toFixed(3)} mm³`) : t("Non renseignée")}</dd></div>
               </dl>
             </details>
           )}
           <div className="connectivity-control-strip">
-          <div className="connectivity-layers" aria-label="Calques de connectivité">
+          <div className="connectivity-layers" aria-label={t("Calques de connectivité")}>
             <label>
               <span className="connectivity-check">
                 <input
@@ -212,9 +213,7 @@ function SliceToolbarComponent({
                 />
                 <Check size={12} className="connectivity-check-mark" aria-hidden="true" />
               </span>
-              <span className="connectivity-swatch is-projection" aria-hidden="true" />
-              Projections
-            </label>
+              <span className="connectivity-swatch is-projection" aria-hidden="true" />{t("Projections")}</label>
             <label>
               <span className="connectivity-check">
                 <input
@@ -224,17 +223,15 @@ function SliceToolbarComponent({
                 />
                 <Check size={12} className="connectivity-check-mark" aria-hidden="true" />
               </span>
-              <span className="connectivity-swatch is-injection" aria-hidden="true" />
-              Injection
-            </label>
+              <span className="connectivity-swatch is-injection" aria-hidden="true" />{t("Injection")}</label>
           </div>
           <div className="connectivity-control-ranges">
             <label className="connectivity-range">
-              <span>Opacité <output>{Math.round(connectivityOpacity * 100)}%</output></span>
+              <span>{t("Opacité")} <output>{Math.round(connectivityOpacity * 100)}%</output></span>
               <input
                 type="range"
                 className="viewer-range"
-                aria-label="Opacité de la connectivité"
+                aria-label={t("Opacité de la connectivité")}
                 aria-valuetext={`${Math.round(connectivityOpacity * 100)} %`}
                 style={{ "--range-progress": `${Math.round(connectivityOpacity * 100)}%` } as CSSProperties}
                 min="0"
@@ -245,11 +242,11 @@ function SliceToolbarComponent({
               <span className="connectivity-range-limits" aria-hidden="true"><span>0 %</span><span>100 %</span></span>
             </label>
             <label className="connectivity-range">
-              <span>Seuil du signal <output>{Math.round(connectivityThreshold * 100)}%</output></span>
+              <span>{t("Seuil du signal")} <output>{Math.round(connectivityThreshold * 100)}%</output></span>
               <input
                 type="range"
                 className="viewer-range"
-                aria-label="Seuil du signal de connectivité"
+                aria-label={t("Seuil du signal de connectivité")}
                 aria-valuetext={`${Math.round(connectivityThreshold * 100)} %`}
                 style={{ "--range-progress": `${connectivityThreshold / 0.8 * 100}%` } as CSSProperties}
                 min="0"
@@ -264,9 +261,9 @@ function SliceToolbarComponent({
         </section>
       )}
       {modalityControlsVisible && (
-        <div className="modality-control-strip" aria-label="Réglages visuels de la modalité">
+        <div className="modality-control-strip" aria-label={t("Réglages visuels de la modalité")}>
           <label className="modality-number-control">
-            <span>Min</span>
+            <span>{t("Min")}</span>
             <input
               type="number"
               value={Number(modalityMin.toPrecision(6))}
@@ -274,7 +271,7 @@ function SliceToolbarComponent({
             />
           </label>
           <label className="modality-number-control">
-            <span>Max</span>
+            <span>{t("Max")}</span>
             <input
               type="number"
               value={Number(modalityMax.toPrecision(6))}
@@ -282,15 +279,15 @@ function SliceToolbarComponent({
             />
           </label>
           <label className="modality-palette-control">
-            <span>Palette</span>
+            <span>{t("Palette")}</span>
             <select
               value={modalityPalette}
               onChange={(event) => onModalityPaletteChange(event.currentTarget.value as ModalityPalette)}
             >
-              <option value="gray">Gris</option>
-              <option value="viridis">Viridis</option>
-              <option value="magma">Magma</option>
-              <option value="hot">Chaud</option>
+              <option value="gray">{t("Gris")}</option>
+              <option value="viridis">{t("Viridis")}</option>
+              <option value="magma">{t("Magma")}</option>
+              <option value="hot">{t("Chaud")}</option>
             </select>
           </label>
           <label className="modality-invert-toggle">
@@ -298,15 +295,11 @@ function SliceToolbarComponent({
               type="checkbox"
               checked={modalityInverted}
               onChange={(event) => onModalityInvertedChange(event.currentTarget.checked)}
-            />
-            Inverser
-          </label>
-          <button type="button" className="modality-settings-reset" onClick={onModalitySettingsReset}>
-            Réinitialiser
-          </button>
+            />{t("Inverser")}</label>
+          <button type="button" className="modality-settings-reset" onClick={onModalitySettingsReset}>{t("Réinitialiser")}</button>
         </div>
       )}
-      <div className="slice-tabs" role="tablist" aria-label="Orientation de coupe">
+      <div className="slice-tabs" role="tablist" aria-label={t("Orientation de coupe")}>
         {SLICE_PLANE_ORDER.map((plane) => (
           <button
             type="button"
@@ -316,7 +309,7 @@ function SliceToolbarComponent({
             key={plane}
             onClick={() => onPlaneChange(plane)}
           >
-            {SLICE_PLANES[plane].label}
+            {t(SLICE_PLANES[plane].label)}
           </button>
         ))}
       </div>
@@ -339,34 +332,33 @@ function ConnectivityReadoutComponent({
   region,
   onClear,
 }: ConnectivityReadoutProps) {
+  const { t } = useI18n();
   return (
     <div className="connectivity-readout" aria-live="polite">
       <div className="connectivity-readout-heading">
-        <strong>{pinned ? "Point sélectionné" : "Lecture de la coupe"}</strong>
+        <strong>{pinned ? t("Point sélectionné") : t("Lecture de la coupe")}</strong>
         {pinned && (
-          <button type="button" onClick={onClear}>
-            Effacer
-          </button>
+          <button type="button" onClick={onClear}>{t("Effacer")}</button>
         )}
       </div>
       {inspection ? (
         <>
           <span className="connectivity-readout-region">
-            {region ? `${region.acronym} · ${region.name}` : "Région principale non identifiée"}
+            {region ? `${region.acronym} · ${region.name}` : t("Région principale non identifiée")}
           </span>
           <dl>
             <div>
-              <dt>Projection</dt>
+              <dt>{t("Projection")}</dt>
               <dd>{Math.round(inspection.projection * 100)}%</dd>
             </div>
             <div>
-              <dt>Injection</dt>
+              <dt>{t("Injection")}</dt>
               <dd>{Math.round(inspection.injection * 100)}%</dd>
             </div>
           </dl>
         </>
       ) : (
-        <p>Survolez une zone colorée, puis cliquez pour conserver la lecture.</p>
+        <p>{t("Survolez une zone colorée, puis cliquez pour conserver la lecture.")}</p>
       )}
     </div>
   );

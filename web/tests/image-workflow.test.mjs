@@ -1,15 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import ts from "typescript";
+import { compiledModule } from "./render-module.mjs";
 
-const source = readFileSync(new URL("../src/ImageWorkflow.tsx", import.meta.url), "utf8");
-const javascript = ts.transpileModule(source, {
-  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext },
-}).outputText.replace(/from "([^"]+)"/g, (_match, name) => `from ${JSON.stringify(import.meta.resolve(name))}`);
-const { ImageWorkflow, WorkflowStatus } = await import(`data:text/javascript;base64,${Buffer.from(javascript).toString("base64")}`);
+const { ImageWorkflow, WorkflowStatus } = await import(compiledModule(new URL("../src/ImageWorkflow.tsx", import.meta.url)));
 const defaults = {
   active: "image", hasImage: false, hasRegions: false, modalityCount: 0,
   nativeConnectivity: false, importStatus: "idle", atlasStatus: "idle", modalityStatus: "idle",

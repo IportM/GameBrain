@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n";
 import { memo, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import {
@@ -236,6 +237,7 @@ function InteractiveSlice({
   regionColorsVisible?: boolean;
   resolution: SliceResolution;
 }) {
+  const { t } = useI18n();
   const imageRef = useRef<HTMLImageElement>(null);
   const modalityCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -521,13 +523,13 @@ function InteractiveSlice({
         className={regionColorsVisible ? undefined : "is-region-colors-hidden"}
         style={modalityVisible && modalitySliceData ? { opacity: 0 } : undefined}
         src={imageSrc ?? sliceUrl(plane, index, resolution)}
-        alt={`${SLICE_PLANES[plane].title} ${index} ${
+        alt={`${t(SLICE_PLANES[plane].title)} ${index} ${
           imageSrc
-            ? `de l'image importée${imageResolutionMicrometers
-              ? ` à ${imageResolutionMicrometers} micromètres`
-              : ""}`
-            : `à ${resolution} micromètres de l'atlas Allen`
-        }${annotationsVisible ? " avec annotations" : ""}`}
+            ? t(`de l'image importée${imageResolutionMicrometers
+              ? t(` à ${imageResolutionMicrometers} micromètres`)
+              : ""}`)
+            : t(`à ${resolution} micromètres de l'atlas Allen`)
+        }${annotationsVisible ? t(" avec annotations") : ""}`}
         draggable={false}
         decoding="async"
         onClick={(event) => {
