@@ -2787,16 +2787,71 @@ h1 {
   font-size: 12px;
   white-space: nowrap;
   accent-color: var(--tool-active);
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid #353b40;
+  border-radius: 4px;
+  color: #adb6bd;
+  background: #17191c;
+}
+
+.connectivity-master-toggle:has(input:checked),
+.connectivity-layers label:has(input:checked) {
+  border-color: #527684;
+  color: #edf0f2;
+  background: #213139;
+}
+
+.connectivity-master-toggle:hover,
+.connectivity-layers label:hover {
+  border-color: #80c6d7;
+}
+
+.connectivity-check {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+}
+
+.connectivity-check input {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 1px solid #84919b;
+  border-radius: 4px;
+  background: #141618;
+  cursor: pointer;
+}
+
+.connectivity-check input:checked {
+  border-color: #58b5cc;
+  background: #317d91;
+}
+
+.connectivity-check-mark {
+  position: absolute;
+  inset: 3px;
+  display: none;
+  color: #fff;
+  pointer-events: none;
+}
+
+.connectivity-check input:checked + .connectivity-check-mark {
+  display: block;
+}
+
+.connectivity-layers label:has(input:not(:checked)) .connectivity-swatch {
+  opacity: 0.4;
 }
 
 .connectivity-layers {
   display: flex;
-  gap: 18px;
-}
-
-.connectivity-layers label {
-  min-height: 24px;
-  padding: 0;
+  gap: 10px;
 }
 
 .connectivity-swatch {
@@ -2829,7 +2884,8 @@ h1 {
   align-items: center;
 }
 
-.connectivity-range output {
+.connectivity-range output,
+.slice-control-heading output {
   display: inline-grid;
   min-width: 50px;
   min-height: 26px;
@@ -2842,23 +2898,25 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
-.connectivity-control-ranges input[type="range"] {
+.viewer-range {
   appearance: none;
   -webkit-appearance: none;
   height: 28px;
+  width: 100%;
+  margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
 }
 
-.connectivity-control-ranges input[type="range"]::-webkit-slider-runnable-track {
+.viewer-range::-webkit-slider-runnable-track {
   height: 6px;
   border-radius: 3px;
   background: linear-gradient(to right, #58b5cc 0 var(--range-progress), #424b53 var(--range-progress) 100%);
 }
 
-.connectivity-control-ranges input[type="range"]::-webkit-slider-thumb {
+.viewer-range::-webkit-slider-thumb {
   appearance: none;
   -webkit-appearance: none;
   width: 18px;
@@ -2870,25 +2928,30 @@ h1 {
   box-shadow: 0 0 0 2px #141618;
 }
 
-.connectivity-control-ranges input[type="range"]::-moz-range-track {
+.viewer-range::-moz-range-track {
   height: 6px;
   border-radius: 3px;
   background: #424b53;
 }
 
-.connectivity-control-ranges input[type="range"]::-moz-range-progress {
+.viewer-range::-moz-range-progress {
   height: 6px;
   border-radius: 3px;
   background: #58b5cc;
 }
 
-.connectivity-control-ranges input[type="range"]::-moz-range-thumb {
+.viewer-range::-moz-range-thumb {
   width: 12px;
   height: 12px;
   border: 3px solid #58b5cc;
   border-radius: 50%;
   background: #f5f8fa;
   box-shadow: 0 0 0 2px #141618;
+}
+
+.viewer-range:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .connectivity-range .connectivity-range-limits {
@@ -3158,10 +3221,18 @@ h1 {
 
 .slice-controls {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   padding: 12px 18px 14px;
   border-top: 1px solid #353b40;
   background: #1d2023;
+}
+
+.slice-range-limits {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .slice-controls label {
@@ -3249,14 +3320,6 @@ h1 {
 
 .clip-side-control button {
   min-width: 74px;
-}
-
-.slice-controls input[type="range"] {
-  width: 100%;
-  height: 18px;
-  margin: 0;
-  accent-color: #d7ded9;
-  cursor: pointer;
 }
 
 .viewer canvas {

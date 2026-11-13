@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type WheelEvent,
 } from "react";
 
@@ -3142,6 +3143,10 @@ export default function App() {
             <input
               id="slice-position"
               type="range"
+              className="viewer-range"
+              style={{ "--range-progress": `${activeSliceCount > 1 ? sliceIndex / (activeSliceCount - 1) * 100 : 0}%` } as CSSProperties}
+              aria-valuetext={`Coupe ${sliceIndex} sur ${activeSliceCount - 1}`}
+              disabled={activeSliceCount <= 1}
               min="0"
               max={activeSliceCount - 1}
               step="1"
@@ -3151,6 +3156,7 @@ export default function App() {
                 scheduleSliderIndex(nextIndex);
               }}
             />
+            <div className="slice-range-limits" aria-hidden="true"><span>0</span><span>{activeSliceCount - 1}</span></div>
           </div>
         </section>
       </Workspace>

@@ -1,5 +1,5 @@
 import { memo, type CSSProperties, type ReactNode } from "react";
-import { MapPin } from "lucide-react";
+import { Check, MapPin } from "lucide-react";
 
 import type { ConnectivityInspection } from "./InteractiveSlice";
 import {
@@ -179,11 +179,14 @@ function SliceToolbarComponent({
               title="Explorer les points d'injection" aria-label="Explorer les points d'injection"
               onClick={onExploreExperiments}><MapPin size={16} aria-hidden="true" /></button>}
             <label className="connectivity-master-toggle">
-              <input
-                type="checkbox"
-                checked={connectivityVisible}
-                onChange={(event) => onConnectivityVisibleChange(event.currentTarget.checked)}
-              />
+              <span className="connectivity-check">
+                <input
+                  type="checkbox"
+                  checked={connectivityVisible}
+                  onChange={(event) => onConnectivityVisibleChange(event.currentTarget.checked)}
+                />
+                <Check size={12} className="connectivity-check-mark" aria-hidden="true" />
+              </span>
               <span>Afficher la carte</span>
             </label>
           </div>
@@ -201,20 +204,26 @@ function SliceToolbarComponent({
           <div className="connectivity-control-strip">
           <div className="connectivity-layers" aria-label="Calques de connectivité">
             <label>
-              <input
-                type="checkbox"
-                checked={projectionVisible}
-                onChange={(event) => onProjectionVisibleChange(event.currentTarget.checked)}
-              />
+              <span className="connectivity-check">
+                <input
+                  type="checkbox"
+                  checked={projectionVisible}
+                  onChange={(event) => onProjectionVisibleChange(event.currentTarget.checked)}
+                />
+                <Check size={12} className="connectivity-check-mark" aria-hidden="true" />
+              </span>
               <span className="connectivity-swatch is-projection" aria-hidden="true" />
               Projections
             </label>
             <label>
-              <input
-                type="checkbox"
-                checked={injectionVisible}
-                onChange={(event) => onInjectionVisibleChange(event.currentTarget.checked)}
-              />
+              <span className="connectivity-check">
+                <input
+                  type="checkbox"
+                  checked={injectionVisible}
+                  onChange={(event) => onInjectionVisibleChange(event.currentTarget.checked)}
+                />
+                <Check size={12} className="connectivity-check-mark" aria-hidden="true" />
+              </span>
               <span className="connectivity-swatch is-injection" aria-hidden="true" />
               Injection
             </label>
@@ -224,6 +233,7 @@ function SliceToolbarComponent({
               <span>Opacité <output>{Math.round(connectivityOpacity * 100)}%</output></span>
               <input
                 type="range"
+                className="viewer-range"
                 aria-label="Opacité de la connectivité"
                 aria-valuetext={`${Math.round(connectivityOpacity * 100)} %`}
                 style={{ "--range-progress": `${Math.round(connectivityOpacity * 100)}%` } as CSSProperties}
@@ -238,6 +248,7 @@ function SliceToolbarComponent({
               <span>Seuil du signal <output>{Math.round(connectivityThreshold * 100)}%</output></span>
               <input
                 type="range"
+                className="viewer-range"
                 aria-label="Seuil du signal de connectivité"
                 aria-valuetext={`${Math.round(connectivityThreshold * 100)} %`}
                 style={{ "--range-progress": `${connectivityThreshold / 0.8 * 100}%` } as CSSProperties}
