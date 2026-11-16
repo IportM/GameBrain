@@ -23,6 +23,7 @@ import {
   type AllenConnectivityExperiment,
 } from "./allenApi";
 import { isLocalApiRequest } from "./security";
+import { createPythonEnvironment } from "./pythonEnvironment";
 import { downloadedExperiments, invalidateConnectivityLibrary, readyExperiment, readExperimentMetadata } from "./connectivityLibrary";
 type ImportStatus = "idle" | "uploading" | "running" | "completed" | "failed";
 type ImportState = {
@@ -61,11 +62,12 @@ type NativeConnectivityState = {
 export function importApi(): Plugin {
   const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const projectRoot = resolve(webRoot, "..");
-  const python = processEnv.GAMEBRAIN_PYTHON
+  let python = processEnv.GAMEBRAIN_PYTHON
     ? resolve(projectRoot, processEnv.GAMEBRAIN_PYTHON)
     : platform === "win32"
       ? resolve(projectRoot, ".venv-registration", "Scripts", "python.exe")
       : resolve(projectRoot, ".venv-registration", "bin", "python");
+  const environment = createPythonEnvironment(projectRoot);
   const missingFileMessage = (path: string) => path === python
     ? "Python introuvable. Dans le dossier web, lancez pnpm run setup puis redémarrez le site."
     : `Fichier manquant : ${path}`;
@@ -94,6 +96,9 @@ export function importApi(): Plugin {
   let connectivityTimeout: ReturnType<typeof setTimeout> | null = null;
   let nativeConnectivityProcess: ChildProcessWithoutNullStreams | null = null;
   let modalityProcess: ChildProcessWithoutNullStreams | null = null;
+  let qcProcess: ChildProcessWithoutNullStreams | null = null;
+  let qcJob: Promise<boolean> | null = null;
+  let qcReadyKey = "";
   let currentOutput: string | null = null;
   let currentConnectivityOutput: string | null = null;
   let nativeRegionQueue: Promise<unknown> = Promise.resolve();
@@ -404,6 +409,22 @@ export function importApi(): Plugin {
     viewerManifest: viewerManifest(),
   });
   const modalityRoot = () => currentOutput ? resolve(currentOutput, "..", "modalities") : null;
+  const sessionRoot = () => currentOutput ? resolve(currentOutput, "..", "sessions") : null;
+  const sessionRecords = () => {
+    const root = sessionRoot();
+    if (!root || !existsSync(root)) return [];
+    return readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() && /^[a-zA-Z0-9_-]+$/.test(entry.name))
+      .flatMap((entry) => {
+        const path = resolve(root, entry.name, "manifest.json");
+        if (!existsSync(path)) return [];
+        try {
+          const manifest = JSON.parse(readFileSync(path, "utf8"));
+          const preview = String(manifest.preview_modality_id);
+          if (!/^[a-zA-Z0-9_-]+$/.test(preview) || !existsSync(resolve(modalityRoot()!, preview, "manifest.json"))) return [];
+          return [{ id: entry.name, name: String(manifest.name), sourceFile: String(manifest.source_file), previewModalityId: preview }];
+        } catch { return []; }
+      });
+  };
   const modalityBinaryCache = new Map<string, {
     values: Float32Array;
     mask: Uint8Array;
@@ -474,6 +495,7 @@ export function importApi(): Plugin {
           name: String(manifest.name),
           sourceFile: String(manifest.source_file),
           geometryStatus: manifest.geometry_status,
+          sessionId: manifest.session_id ?? null,
           shape: manifest.shape,
           spacingMm: manifest.spacing_mm,
           sourceShape: manifest.source_shape,
@@ -492,6 +514,7 @@ export function importApi(): Plugin {
     status: modalityStatus,
     message: modalityMessage,
     modalities: modalityRecords(),
+    sessions: sessionRecords(),
   });
   const nativeRegistrationManifest = () => currentOutput
     ? resolve(currentOutput, "..", "registration", "native-web", "manifest.json")
@@ -640,12 +663,42 @@ export function importApi(): Plugin {
   return {
     name: "gamebrain-import-api",
     configureServer(server) {
-      warmCurrentNativeRegionWorker();
+      const checkEnvironment = async () => {
+        const report = await environment.check();
+        if (report.selected) python = report.selected.python;
+        if (report.status === "ready") warmCurrentNativeRegionWorker();
+      };
+      void checkEnvironment();
       server.middlewares.use(async (request, response, next) => {
         if (request.url?.startsWith("/api/") && !isLocalApiRequest(request)) {
           response.statusCode = 403;
           response.setHeader("Content-Type", "application/json; charset=utf-8");
           response.end(JSON.stringify({ message: "API locale uniquement" }));
+          return;
+        }
+        if (request.url === "/api/environment" && request.method === "GET") {
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          response.setHeader("Cache-Control", "no-store");
+          response.end(JSON.stringify(environment.getReport()));
+          return;
+        }
+        if (request.url === "/api/environment/recheck" && request.method === "POST") {
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          if (process || registrationProcess || modalityProcess || connectivityProcess || nativeConnectivityProcess || qcProcess || modalityStatus === "uploading") {
+            response.statusCode = 409;
+            response.end(JSON.stringify({ message: "Un traitement est déjà en cours" }));
+            return;
+          }
+          void checkEnvironment();
+          response.statusCode = 202;
+          response.end(JSON.stringify(environment.getReport()));
+          return;
+        }
+        if (request.method === "POST" && /^\/api\/(?:import\/start|allen-registration\/start|modalities\/import|sessions\/import|connectivity\/(?:start|native\/start))$/.test(request.url ?? "")
+          && environment.getReport().status !== "ready") {
+          response.statusCode = 503;
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          response.end(JSON.stringify({ status: "failed", modalities: [], sessions: [], message: "Installation Python incomplète. Vérifiez les dépendances au démarrage." }));
           return;
         }
         if (request.url === "/api/import/status" && request.method === "GET") {
@@ -658,7 +711,96 @@ export function importApi(): Plugin {
           response.end(JSON.stringify(modalityResponsePayload()));
           return;
         }
+        if (request.url === "/api/sessions/import" && request.method === "POST") {
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          const reference = currentRareInput();
+          const job = currentOutput ? resolve(currentOutput, "..") : null;
+          const referenceBrain = job ? resolve(job, "extraction", "brain_extracted.nii.gz") : null;
+          const mask = job ? resolve(job, "extraction", "brain_mask.nii.gz") : null;
+          if (!reference || !referenceBrain || !mask || !existsSync(referenceBrain) || !existsSync(mask)) {
+            response.statusCode = 409;
+            response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Importez d'abord une RARE de référence", status: "failed" }));
+            return;
+          }
+          if (process || registrationProcess || modalityProcess || qcProcess || modalityStatus === "uploading" || state.status === "uploading") {
+            response.statusCode = 409;
+            response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Un traitement est déjà en cours" }));
+            return;
+          }
+          const fileName = basename(decodeURIComponent(String(request.headers["x-file-name"] ?? "")));
+          const name = decodeURIComponent(String(request.headers["x-session-name"] ?? "")).trim().slice(0, 80);
+          const length = Number(request.headers["content-length"] ?? 0);
+          if (!name || !/\.nii(?:\.gz)?$/i.test(fileName) || !Number.isSafeInteger(length) || length <= 0 || length > 2_000_000_000) {
+            response.statusCode = 400;
+            response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Nom de session et fichier RARE NIfTI requis (2 Go maximum)", status: "failed" }));
+            return;
+          }
+          const id = `session-${Date.now()}`;
+          const directory = resolve(sessionRoot()!, id);
+          const preview = resolve(modalityRoot()!, `${id}-rare`);
+          mkdirSync(directory, { recursive: true });
+          const input = resolve(directory, fileName.toLowerCase().endsWith(".gz") ? "input.nii.gz" : "input.nii");
+          modalityStatus = "uploading";
+          modalityMessage = "Import et recalage de la nouvelle session";
+          const destination = createWriteStream(input, { flags: "wx" });
+          let failed = false;
+          const failUpload = () => {
+            if (failed) return;
+            failed = true;
+            request.unpipe(destination);
+            destination.destroy();
+            destination.once("close", () => rmSync(directory, { recursive: true, force: true }));
+            modalityStatus = "failed";
+            modalityMessage = "Import de session interrompu";
+            if (!response.writableEnded && !response.destroyed) {
+              response.statusCode = 400;
+              response.end(JSON.stringify(modalityResponsePayload()));
+            }
+          };
+          let bytes = 0;
+          request.on("data", (chunk: Buffer) => { bytes += chunk.length; if (bytes > length) failUpload(); });
+          request.once("aborted", failUpload);
+          destination.once("error", failUpload);
+          destination.once("finish", () => {
+            if (failed || bytes !== length) { failUpload(); return; }
+            modalityProcess = spawn(python, [
+              resolve(projectRoot, "registration", "src", "register_session.py"),
+              "--input", input, "--reference", reference, "--reference-brain", referenceBrain,
+              "--mask", mask, "--output", directory, "--preview", preview,
+              "--name", name, "--source-name", fileName,
+            ], { cwd: projectRoot, windowsHide: true, env: { ...processEnv, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" } });
+            let diagnostics = "";
+            const log = (chunk: Buffer) => { diagnostics = (diagnostics + chunk.toString("utf8")).slice(-8000); };
+            modalityProcess.stdout.on("data", log);
+            modalityProcess.stderr.on("data", log);
+            modalityProcess.once("error", (error) => { diagnostics = error.message; });
+            modalityProcess.once("close", (code) => {
+              const success = code === 0 && existsSync(resolve(directory, "manifest.json")) && existsSync(resolve(preview, "manifest.json"));
+              modalityStatus = success ? "completed" : "failed";
+              modalityMessage = success ? "Session recalée. Vérifiez sa RARE avec Comparer avant d'importer ses modalités."
+                : diagnostics.trim().split(/\r?\n/).filter(Boolean).at(-1) ?? "Recalage de session impossible";
+              modalityProcess = null;
+              if (!success) { rmSync(directory, { recursive: true, force: true }); rmSync(preview, { recursive: true, force: true }); }
+              if (!response.writableEnded && !response.destroyed) {
+                response.statusCode = success ? 201 : 422;
+                response.end(JSON.stringify(modalityResponsePayload()));
+              }
+            });
+          });
+          request.pipe(destination);
+          return;
+        }
         if (request.url === "/api/modalities/import" && request.method === "POST") {
+          const alignment = request.headers["x-modality-alignment"];
+          const sessionId = request.headers["x-session-id"];
+          const session = typeof sessionId === "string" && /^[a-zA-Z0-9_-]+$/.test(sessionId)
+            ? sessionRecords().find((entry) => entry.id === sessionId) : null;
+          if (alignment !== "same-session-aligned" && !(alignment === "session-rare-aligned" && session)) {
+            response.statusCode = 422;
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            response.end(JSON.stringify({ ...modalityResponsePayload(), status: "failed", message: "Confirmez que la modalité est déjà alignée sur la RARE de référence. Pour une autre session, un recalage entre RARE est nécessaire." }));
+            return;
+          }
           const rareInput = currentRareInput();
           const brainMask = currentOutput
             ? resolve(currentOutput, "..", "extraction", "brain_mask.nii.gz")
@@ -669,7 +811,7 @@ export function importApi(): Plugin {
             response.end(JSON.stringify({ ...modalityResponsePayload(), status: "failed", message: "Importez d'abord une RARE" }));
             return;
           }
-          if (modalityProcess || process || registrationProcess) {
+          if (modalityProcess || process || registrationProcess || modalityStatus === "uploading") {
             response.statusCode = 409;
             response.setHeader("Content-Type", "application/json; charset=utf-8");
             response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Un traitement est déjà en cours" }));
@@ -719,6 +861,7 @@ export function importApi(): Plugin {
                 "--output", output,
                 "--name", requestedName,
                 "--source-name", fileName,
+                ...(alignment === "session-rare-aligned" && session ? ["--session-dir", resolve(sessionRoot()!, session.id)] : []),
               ],
               {
                 cwd: projectRoot,
@@ -910,7 +1053,7 @@ export function importApi(): Plugin {
           }
         }
         if (request.url?.startsWith("/api/modalities/") && request.method === "DELETE") {
-          if (modalityProcess) {
+          if (modalityProcess || modalityStatus === "uploading") {
             response.statusCode = 409;
             response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Un import est en cours" }));
             return;
@@ -923,6 +1066,12 @@ export function importApi(): Plugin {
             return;
           }
           const target = resolve(root, id);
+          if (sessionRecords().some((session) => session.previewModalityId === id)) {
+            response.statusCode = 409;
+            response.setHeader("Content-Type", "application/json; charset=utf-8");
+            response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Cette RARE est liée à une session recalée et doit être conservée pour sa vérification." }));
+            return;
+          }
           if (!target.toLocaleLowerCase().startsWith(`${resolve(root).toLocaleLowerCase()}${sep}`)) {
             response.statusCode = 400;
             response.end(JSON.stringify({ ...modalityResponsePayload(), message: "Chemin invalide" }));
@@ -1034,7 +1183,7 @@ export function importApi(): Plugin {
         }
         if (request.url === "/api/session" && request.method === "DELETE") {
           response.setHeader("Content-Type", "application/json; charset=utf-8");
-          if (process || registrationProcess || connectivityProcess || nativeConnectivityProcess || modalityProcess) {
+          if (process || registrationProcess || connectivityProcess || nativeConnectivityProcess || modalityProcess || qcProcess || modalityStatus === "uploading") {
             response.statusCode = 409;
             response.end(JSON.stringify({
               ok: false,
@@ -1412,7 +1561,7 @@ export function importApi(): Plugin {
             response.end(JSON.stringify({ ...registrationResponsePayload(), status: "failed", message: "Importez d'abord une image" }));
             return;
           }
-          if (process || registrationProcess) {
+          if (process || registrationProcess || qcProcess || modalityProcess || modalityStatus === "uploading") {
             response.statusCode = 409;
             response.setHeader("Content-Type", "application/json; charset=utf-8");
             response.end(JSON.stringify({ ...registrationResponsePayload(), message: "Un traitement est déjà en cours" }));
@@ -1511,7 +1660,7 @@ export function importApi(): Plugin {
           return;
         }
         if (request.url === "/api/import/start" && request.method === "POST") {
-          if (process || registrationProcess || modalityProcess || state.status === "uploading") {
+          if (process || registrationProcess || modalityProcess || qcProcess || modalityStatus === "uploading" || state.status === "uploading") {
             response.statusCode = 409;
             response.setHeader("Content-Type", "application/json; charset=utf-8");
             response.end(JSON.stringify(responsePayload()));
@@ -1561,7 +1710,7 @@ export function importApi(): Plugin {
           return;
         }
         if (request.url === "/api/import/current" && request.method === "DELETE") {
-          if (process || registrationProcess || modalityProcess || state.status === "uploading" || state.status === "running") {
+          if (process || registrationProcess || modalityProcess || qcProcess || modalityStatus === "uploading" || state.status === "uploading" || state.status === "running") {
             response.statusCode = 409;
             response.setHeader("Content-Type", "application/json; charset=utf-8");
             response.end(JSON.stringify({ ...responsePayload(), message: "Une extraction est en cours" }));
@@ -1600,6 +1749,58 @@ export function importApi(): Plugin {
           };
           response.setHeader("Content-Type", "application/json; charset=utf-8");
           response.end(JSON.stringify(responsePayload()));
+          return;
+        }
+        if (request.url?.startsWith("/api/allen-registration/qc/") && request.method === "GET") {
+          const asset = new URL(request.url, "http://localhost").pathname.slice("/api/allen-registration/qc/".length);
+          if (!currentOutput || !/^(coronal|sagittal|axial)\/(coronal|sagittal|axial)-\d{3,4}\.webp$/.test(asset)) {
+            response.statusCode = 404;
+            response.end("QC indisponible");
+            return;
+          }
+          const registration = resolve(currentOutput, "..", "registration");
+          if (registrationProcess || process || state.status === "uploading") {
+            response.statusCode = 409;
+            response.end("Traitement en cours");
+            return;
+          }
+          const sources = ["allen_template_in_input_space.nii.gz", "allen_labels_in_input_space.nii.gz", "input_brain_extracted.nii.gz"]
+            .map((name) => resolve(registration, name));
+          if (sources.some((path) => !existsSync(path))) {
+            response.statusCode = 404;
+            response.end("Recalage Allen requis");
+            return;
+          }
+          const readyKey = registration + sources.map((path) => `${statSync(path).mtimeMs}:${statSync(path).size}`).join("|");
+          if (qcReadyKey !== readyKey && !qcJob) {
+            const script = resolve(projectRoot, "registration", "src", "export_registration_qc.py");
+            qcJob = new Promise<boolean>((done) => {
+              const child = spawn(python, [script, "--registration", registration], {
+                cwd: projectRoot, windowsHide: true,
+                env: { ...processEnv, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
+              });
+              qcProcess = child;
+              child.stdout.resume();
+              child.stderr.resume();
+              const timeout = setTimeout(() => child.kill(), 120_000);
+              const finish = (success: boolean) => { clearTimeout(timeout); done(success); };
+              child.once("error", () => finish(false));
+              child.once("close", (code) => finish(code === 0));
+            }).then((success) => {
+              if (success) qcReadyKey = readyKey;
+              return success;
+            }).finally(() => { qcProcess = null; qcJob = null; });
+          }
+          const success = qcReadyKey === readyKey || await qcJob;
+          const path = resolve(registration, "qc-web", asset);
+          if (!success || !existsSync(path)) {
+            response.statusCode = success ? 404 : 500;
+            response.end("Impossible de preparer Allen recale pour la verification");
+            return;
+          }
+          response.setHeader("Content-Type", "image/webp");
+          response.setHeader("Cache-Control", "no-store");
+          response.end(readFileSync(path));
           return;
         }
         if (request.url?.startsWith("/api/allen-registration/viewer/") && request.method === "GET") {

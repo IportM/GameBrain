@@ -12,6 +12,8 @@ import {
 } from "react";
 
 import InteractiveSlice, { type ConnectivityInspection } from "./InteractiveSlice";
+import SliceComparison from "./SliceComparison";
+import ModalityAlignment, { SessionImport, modalityAlignmentConfirmed, type ModalitySession } from "./ModalityAlignment";
 import RegionTooltip from "./RegionTooltip";
 import ExperimentExplorerPanel from "./ExperimentExplorerPanel";
 import ConnectivityLibrary from "./ConnectivityLibrary";
@@ -184,8 +186,14 @@ export default function App() {
   const [registrationFile, setRegistrationFile] = useState<File | null>(null);
   const [modalityFile, setModalityFile] = useState<File | null>(null);
   const [modalityName, setModalityName] = useState("");
+  const [modalitySession, setModalitySession] = useState<ModalitySession>("");
+  const [modalityAligned, setModalityAligned] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [modalityTask, setModalityTask] = useState<"modality" | "session">("modality");
   const [modalityState, setModalityState] = useState<ModalityState>(INITIAL_MODALITY_STATE);
   const [activeModalityId, setActiveModalityId] = useState<string | null>(null);
+  const [compareSlices, setCompareSlices] = useState(false);
+  const [registrationQC, setRegistrationQC] = useState(false);
   const [loadedModalitySlice, setLoadedModalitySlice] = useState<{
     key: string;
     data: ModalitySlice;
@@ -1152,7 +1160,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (modalityState.status !== "uploading") return;
+    const timer = window.setInterval(() => { void refreshModalities().catch(() => undefined); }, 2000);
+    return () => window.clearInterval(timer);
+  }, [modalityState.status, refreshModalities]);
+
+  useEffect(() => {
+    setModalitySession("");
+    setModalityAligned(false);
+    setSelectedSessionId("");
+    setModalityTask("modality");
     if (!registrationState.hasViewerAssets) {
+      setCompareSlices(false);
+      setRegistrationQC(false);
       setModalityState(INITIAL_MODALITY_STATE);
       return;
     }
@@ -1174,7 +1194,7 @@ export default function App() {
     setModalityMax(activeModality.percentiles[1]);
     setModalityPalette("gray");
     setModalityInverted(false);
-  }, [activeModality]);
+  }, [activeModality?.id, activeModality?.percentiles[0], activeModality?.percentiles[1]]);
 
   useEffect(() => {
     if (!activeModality || activeModalitySliceKey === null) return;
@@ -1461,7 +1481,8 @@ export default function App() {
   };
 
   const importModality = async () => {
-    if (!modalityFile || !modalityName.trim()) return;
+    const registered = modalityState.sessions?.some((entry) => entry.id === selectedSessionId) ?? false;
+    if (!modalityFile || !modalityName.trim() || !modalityAlignmentConfirmed(modalitySession, modalityAligned, registered)) return;
     setModalityState((current) => ({
       ...current,
       status: "uploading",
@@ -1473,6 +1494,8 @@ export default function App() {
         headers: {
           "X-File-Name": encodeURIComponent(modalityFile.name),
           "X-Modality-Name": encodeURIComponent(modalityName.trim()),
+          "X-Modality-Alignment": modalitySession === "other" ? "session-rare-aligned" : "same-session-aligned",
+          ...(modalitySession === "other" ? { "X-Session-Id": selectedSessionId } : {}),
         },
         body: modalityFile,
       });
@@ -1481,6 +1504,8 @@ export default function App() {
       if (!response.ok) throw new Error(nextState.message);
       setModalityFile(null);
       setModalityName("");
+      setModalitySession("");
+      setModalityAligned(false);
       setActiveModalityId(null);
     } catch (error) {
       setModalityState((current) => ({
@@ -1488,6 +1513,28 @@ export default function App() {
         status: "failed",
         message: error instanceof Error ? error.message : "L'import de la modalité a échoué",
       }));
+    }
+  };
+
+  const registerSession = async (name: string, file: File): Promise<boolean> => {
+    setModalityState((current) => ({ ...current, status: "uploading", message: "Import et recalage de la nouvelle session" }));
+    setModalityAligned(false);
+    try {
+      const response = await fetch("/api/sessions/import", {
+        method: "POST", headers: { "X-File-Name": encodeURIComponent(file.name), "X-Session-Name": encodeURIComponent(name) }, body: file,
+      });
+      const next = await readModalityResponse(response);
+      setModalityState(next);
+      if (!response.ok) throw new Error(next.message);
+      const previous = new Set(modalityState.sessions?.map((entry) => entry.id) ?? []);
+      const added = next.sessions?.find((entry) => !previous.has(entry.id));
+      setSelectedSessionId(added?.id ?? "");
+      setModalitySession("other");
+      setModalityTask("modality");
+      return true;
+    } catch (error) {
+      setModalityState((current) => ({ ...current, status: "failed", message: error instanceof Error ? error.message : "Recalage de session impossible" }));
+      return false;
     }
   };
 
@@ -2068,7 +2115,7 @@ export default function App() {
           >
             <header className="registration-dialog-header">
               <div>
-                <h2 id="modalities-title">{t("Modalités")}</h2>
+                <h2 id="modalities-title">{t("Modalités et sessions")}</h2>
               </div>
               <button
                 aria-label={t("Fermer")}
@@ -2080,7 +2127,30 @@ export default function App() {
             <div className="registration-dialog-body modalities-body">
               {imageWorkflow("modalities")}
               <div className="workflow-reference"><span>{t("Image de référence")}</span><strong>{registrationState.fileName ?? t("Aucune image importée")}</strong></div>
-              <section className="modality-import-panel">
+              <div className="modality-task-tabs" role="tablist" aria-label={t("Import des données")}>
+                <button type="button" role="tab" id="modality-task-tab" aria-controls="modality-task-panel"
+                  aria-selected={modalityTask === "modality"} disabled={imageWorkBusy}
+                  onClick={() => setModalityTask("modality")}>{t("Importer une modalité")}</button>
+                <button type="button" role="tab" id="session-task-tab" aria-controls="session-task-panel"
+                  aria-selected={modalityTask === "session"} disabled={imageWorkBusy}
+                  onClick={() => setModalityTask("session")}>{t("Ajouter une session (RARE)")}</button>
+              </div>
+              {modalityTask === "session" ? <div role="tabpanel" id="session-task-panel" aria-labelledby="session-task-tab">
+                <SessionImport disabled={imageWorkBusy} onRegister={registerSession} />
+              </div> : <div role="tabpanel" id="modality-task-panel" aria-labelledby="modality-task-tab" className="modality-task-panel">
+              <ModalityAlignment session={modalitySession} aligned={modalityAligned}
+                disabled={imageWorkBusy}
+                onSessionChange={(session) => { setModalitySession(session); setModalityAligned(false); }}
+                onAlignedChange={setModalityAligned}
+                sessions={modalityState.sessions ?? []} selectedSessionId={selectedSessionId}
+                onSessionIdChange={(id) => { setSelectedSessionId(id); setModalityAligned(false); }}
+                onAddSession={() => setModalityTask("session")}
+                onViewSession={(session) => {
+                  setActiveModalityId(session.previewModalityId); setViewerSource("subject");
+                  setCompareSlices(true); setRegistrationQC(false); setModalitiesOpen(false);
+                }} />
+              {(modalitySession === "same" || (modalitySession === "other" && modalityState.sessions?.some((entry) => entry.id === selectedSessionId))) && <>
+              <section className="modality-import-panel" aria-label={t("Modalité à importer")}>
                 <label className="modality-name-field">
                   <span>{t("Nom de la modalité")}</span>
                   <input
@@ -2102,6 +2172,7 @@ export default function App() {
                     onChange={(event) => {
                       const file = event.currentTarget.files?.[0] ?? null;
                       setModalityFile(file);
+                      setModalityAligned(false);
                       if (file && !modalityName.trim()) {
                         setModalityName(file.name.replace(/\.nii(?:\.gz)?$/i, ""));
                       }
@@ -2113,20 +2184,22 @@ export default function App() {
                 <button
                   type="button"
                   className="modality-import-button"
-                  disabled={!registrationState.hasViewerAssets || !modalityFile || !modalityName.trim() || modalityState.status === "uploading"}
+                  disabled={!registrationState.hasViewerAssets || !modalityFile || !modalityName.trim() || !modalityAlignmentConfirmed(modalitySession, modalityAligned, modalityState.sessions?.some((entry) => entry.id === selectedSessionId)) || imageWorkBusy}
                   onClick={() => void importModality()}
                 >
                   {modalityState.status === "uploading" ? t("Validation en cours") : t("Importer")}
                 </button>
               </section>
               {modalityFile && <p className="modality-selected-file">{modalityFile.name}</p>}
+              </>}
+              </div>}
               <WorkflowStatus status={modalityState.status}
-                title={modalityState.status === "uploading" ? t("Import et vérification de la grille")
+                title={modalityState.status === "uploading" ? t("Traitement en cours")
                   : modalityState.status === "failed" ? t("Opération sur la modalité interrompue")
                     : modalityState.modalities.length > 0 ? t(`${modalityState.modalities.length} modalité${modalityState.modalities.length > 1 ? "s" : ""} disponible${modalityState.modalities.length > 1 ? "s" : ""}`)
                       : t("Aucune modalité complémentaire")}
                 message={modalityState.message} />
-              {modalityState.modalities.length > 0 && <div className="modality-list">
+              {modalityTask === "modality" && modalityState.modalities.length > 0 && <div className="modality-list">
                 {modalityState.modalities.map((modality) => (
                   <article className="modality-row" key={modality.id}>
                     <div className="modality-row-heading">
@@ -2135,8 +2208,8 @@ export default function App() {
                         <span>{modality.sourceFile}</span>
                       </div>
                       <span className={`modality-geometry is-${modality.geometryStatus}`}
-                        title={modality.geometryStatus === "compatible" ? t("Grille identique à l'image de référence") : t("Grille adaptée à l'image de référence, sans recalage anatomique supplémentaire")}>
-                        {modality.geometryStatus === "compatible"
+                        title={modality.geometryStatus === "registered" ? t("Transformation de la RARE de session appliquée vers la référence") : modality.geometryStatus === "compatible" ? t("Grille identique à l'image de référence") : t("Grille adaptée à l'image de référence, sans recalage anatomique supplémentaire")}>
+                        {modality.geometryStatus === "registered" ? t("Recalée") : modality.geometryStatus === "compatible"
                           ? t("Grille compatible")
                           : t("Rééchantillonnée")}
                       </span>
@@ -2880,12 +2953,24 @@ export default function App() {
             <div>
               <p className="panel-kicker">
                 {viewerSource === "subject"
-                  ? t(`${activeModality?.name ?? t("Image importée")} · espace natif · ${Math.round(activeSliceSpacingMm * 1000)} µm`)
+                  ? t(`${compareSlices || registrationQC ? t("Image importée") : activeModality?.name ?? t("Image importée")} · espace natif · ${Math.round(activeSliceSpacingMm * 1000)} µm`)
                   : t("Reference et annotations")}
               </p>
               <h2>{t(activeSlice.title)}</h2>
             </div>
             {viewerSource === "subject" && modalityState.modalities.length > 0 && (
+              <button type="button" className={`comparison-toggle${compareSlices ? " is-active" : ""}`}
+                aria-pressed={compareSlices} onClick={() => { setCompareSlices((value) => !value); setRegistrationQC(false); }}>
+                {t(compareSlices ? "Vue simple" : "Comparer")}
+              </button>
+            )}
+            {viewerSource === "subject" && subjectAnnotationsAvailable && (
+              <button type="button" className={`comparison-toggle${registrationQC ? " is-active" : ""}`}
+                aria-pressed={registrationQC} onClick={() => { setRegistrationQC((value) => !value); setCompareSlices(false); }}>
+                {t(registrationQC ? "Fermer la vérification" : "Vérifier le recalage")}
+              </button>
+            )}
+            {viewerSource === "subject" && !compareSlices && !registrationQC && modalityState.modalities.length > 0 && (
               <label className="slice-volume-selector">
                 <span>{t("Volume")}</span>
                 <select
@@ -2910,6 +2995,7 @@ export default function App() {
             </div>
           </header>
           <SliceToolbar
+            inspectionMode={viewerSource === "subject" && registrationQC && subjectAnnotationsAvailable}
             onExploreExperiments={exploreExperiments}
             onReturnToExperiment={() => {
               setExperimentExplorerEnabled(false);
@@ -2937,7 +3023,7 @@ export default function App() {
             connectivityThreshold={connectivityThreshold}
             connectivityVisible={connectivityVisible}
             injectionVisible={injectionVisible}
-            modalityControlsVisible={viewerSource === "subject" && activeModality !== null}
+            modalityControlsVisible={viewerSource === "subject" && !compareSlices && !registrationQC && activeModality !== null}
             modalityInverted={modalityInverted}
             modalityMax={modalityMax}
             modalityMin={modalityMin}
@@ -2974,7 +3060,13 @@ export default function App() {
             onShowImportedAnnotationsChange={setShowImportedAnnotations}
             onShowImportedMaskChange={setShowImportedMask}
           />
-          <div
+          <SliceComparison
+            qcEnabled={viewerSource === "subject" && registrationQC && subjectAnnotationsAvailable}
+            qcRevision={allenRegistrationState.finishedAt}
+            enabled={viewerSource === "subject" && compareSlices && modalityState.modalities.length > 0}
+            modalities={modalityState.modalities}
+            activeId={activeModalityId}
+            revision={registrationState.finishedAt}
             className={`slice-image-wrap${activeRegion ? " is-hovering" : ""}`}
             onWheel={handleSliceWheel}
           >
@@ -3082,7 +3174,7 @@ export default function App() {
               regionColorsVisible={viewerSource !== "allen" || showAllenRegionColors}
               resolution={sliceResolution}
             />
-          </div>
+          </SliceComparison>
           <div className="slice-controls">
             {viewerSource === "allen" && connectivityVisible && connectivityState.hasViewerAssets && (
               <ConnectivityReadout

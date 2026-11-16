@@ -110,10 +110,11 @@ export type RegistrationState = {
 };
 
 export type ModalityRecord = {
+  sessionId?: string | null;
   id: string;
   name: string;
   sourceFile: string;
-  geometryStatus: "compatible" | "resampled";
+  geometryStatus: "compatible" | "resampled" | "registered";
   shape: [number, number, number];
   spacingMm: [number, number, number];
   sourceShape: [number, number, number];
@@ -130,6 +131,14 @@ export type ModalityState = {
   status: "idle" | "uploading" | "completed" | "failed";
   message: string;
   modalities: ModalityRecord[];
+  sessions?: SessionRecord[];
+};
+
+export type SessionRecord = {
+  id: string;
+  name: string;
+  sourceFile: string;
+  previewModalityId: string;
 };
 
 export const INITIAL_MODALITY_STATE: ModalityState = {

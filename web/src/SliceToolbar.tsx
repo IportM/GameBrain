@@ -15,6 +15,7 @@ import type { ConnectivityState } from "./data";
 import type { ModalityPalette } from "./modalityVolume";
 
 type SliceToolbarProps = {
+  inspectionMode?: boolean;
   onExploreExperiments: () => void;
   onReturnToExperiment: () => void;
   library?: ReactNode;
@@ -58,6 +59,7 @@ type SliceToolbarProps = {
 };
 
 function SliceToolbarComponent({
+  inspectionMode = false,
   onExploreExperiments,
   onReturnToExperiment,
   library,
@@ -100,6 +102,14 @@ function SliceToolbarComponent({
   onShowImportedMaskChange,
 }: SliceToolbarProps) {
   const { t } = useI18n();
+  const orientationTabs = <div className="slice-tabs" role="tablist" aria-label={t("Orientation de coupe")}>
+    {SLICE_PLANE_ORDER.map((plane) => (
+      <button type="button" role="tab" aria-selected={activePlane === plane}
+        className={activePlane === plane ? "is-active" : undefined} key={plane}
+        onClick={() => onPlaneChange(plane)}>{t(SLICE_PLANES[plane].label)}</button>
+    ))}
+  </div>;
+  if (inspectionMode) return <div className="slice-toolbar-stack">{orientationTabs}</div>;
   return (
     <div className="slice-toolbar-stack">
       {viewerSource === "allen" && !connectivityControlsVisible && (
@@ -299,20 +309,7 @@ function SliceToolbarComponent({
           <button type="button" className="modality-settings-reset" onClick={onModalitySettingsReset}>{t("Réinitialiser")}</button>
         </div>
       )}
-      <div className="slice-tabs" role="tablist" aria-label={t("Orientation de coupe")}>
-        {SLICE_PLANE_ORDER.map((plane) => (
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activePlane === plane}
-            className={activePlane === plane ? "is-active" : undefined}
-            key={plane}
-            onClick={() => onPlaneChange(plane)}
-          >
-            {t(SLICE_PLANES[plane].label)}
-          </button>
-        ))}
-      </div>
+      {orientationTabs}
     </div>
   );
 }

@@ -99,11 +99,19 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--source-name", required=True)
+    parser.add_argument("--session-dir", type=Path)
     args = parser.parse_args()
 
     source = load_scalar(args.input)
+    original_source = source
     reference = load_scalar(args.reference)
     mask_image = load_scalar(args.mask)
+    if args.session_dir:
+        from register_session import apply_session_transform
+        args.output.mkdir(parents=True, exist_ok=True)
+        transformed = args.output / "session_in_reference.nii.gz"
+        apply_session_transform(args.input, args.reference, args.session_dir, transformed)
+        source = load_scalar(transformed)
     same_grid = source.shape == reference.shape and np.allclose(
         source.affine, reference.affine, rtol=1e-5, atol=1e-4
     )
@@ -121,6 +129,9 @@ def main() -> None:
             order=1,
         )
         geometry_status = "resampled"
+
+    if args.session_dir:
+        geometry_status = "registered"
 
     prepared_path = args.output / "prepared.nii.gz"
     nib.save(prepared, prepared_path)
@@ -155,8 +166,10 @@ def main() -> None:
         "geometry_status": geometry_status,
         "shape": [int(value) for value in prepared.shape],
         "spacing_mm": [float(value) for value in prepared.header.get_zooms()[:3]],
-        "source_shape": [int(value) for value in source.shape],
-        "source_spacing_mm": [float(value) for value in source.header.get_zooms()[:3]],
+        "source_shape": [int(value) for value in original_source.shape],
+        "source_spacing_mm": [float(value) for value in original_source.header.get_zooms()[:3]],
+        "session_id": args.session_dir.name if args.session_dir else None,
+        "alignment_method": "session-rigid" if args.session_dir else "user-confirmed",
         "finite_voxels": int(finite.size),
         "nonzero_voxels": int(nonzero.size),
         "value_range": [float(np.min(measured)), float(np.max(measured))],
