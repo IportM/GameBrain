@@ -1,6 +1,10 @@
 export type Language = "fr" | "en";
 
 export const english: Record<string, string> = {
+  "Zoom de la coupe": "Slice zoom",
+  "Dézoomer": "Zoom out",
+  "Zoomer": "Zoom in",
+  "Projeter dans mon image": "Project into my image",
   "Transfert du fichier": "Uploading file",
   "Transfert du fichier interrompu": "File upload interrupted",
   "coupes": "slices",

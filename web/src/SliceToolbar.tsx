@@ -18,6 +18,7 @@ type SliceToolbarProps = {
   inspectionMode?: boolean;
   onExploreExperiments: () => void;
   onReturnToExperiment: () => void;
+  onProjectConnectivity: () => void;
   library?: ReactNode;
   activePlane: SlicePlane;
   connectivityAvailable: boolean;
@@ -62,6 +63,7 @@ function SliceToolbarComponent({
   inspectionMode = false,
   onExploreExperiments,
   onReturnToExperiment,
+  onProjectConnectivity,
   library,
   activePlane,
   connectivityAvailable,
@@ -109,7 +111,6 @@ function SliceToolbarComponent({
         onClick={() => onPlaneChange(plane)}>{t(SLICE_PLANES[plane].label)}</button>
     ))}
   </div>;
-  if (inspectionMode) return <div className="slice-toolbar-stack">{orientationTabs}</div>;
   return (
     <div className="slice-toolbar-stack">
       {viewerSource === "allen" && !connectivityControlsVisible && (
@@ -119,7 +120,7 @@ function SliceToolbarComponent({
         </div>
       )}
       {(!connectivityAvailable || !connectivityControlsVisible) && library}
-      <div className="slice-command-bar" aria-label={t("Outils de la coupe")}>
+      {!inspectionMode && <div className="slice-command-bar" aria-label={t("Outils de la coupe")}>
         {viewerSource === "allen" ? (
           <>
             <div className="slice-layer-controls" aria-label={t("Affichage des annotations Allen")}>
@@ -179,7 +180,13 @@ function SliceToolbarComponent({
             </label>
           </div>
         )}
-      </div>
+      </div>}
+      {viewerSource === "subject" && !connectivityAvailable && connectivityState.hasViewerAssets && (
+        <div className="connectivity-explorer-return">
+          <span>{t("Expérience")} {connectivityState.experimentId}</span>
+          <button type="button" onClick={onProjectConnectivity}>{t("Projeter dans mon image")}</button>
+        </div>
+      )}
       {connectivityAvailable && connectivityControlsVisible && (
         <section className="connectivity-session" aria-label={t("Expérience de connectivité active")}>
           <div className="connectivity-session-header">
@@ -270,7 +277,7 @@ function SliceToolbarComponent({
           </div>
         </section>
       )}
-      {modalityControlsVisible && (
+      {!inspectionMode && modalityControlsVisible && (
         <div className="modality-control-strip" aria-label={t("Réglages visuels de la modalité")}>
           <label className="modality-number-control">
             <span>{t("Min")}</span>

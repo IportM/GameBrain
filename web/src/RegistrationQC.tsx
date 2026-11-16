@@ -1,7 +1,8 @@
 import { cloneElement, useEffect, useState, type ComponentProps, type CSSProperties, type ReactElement, type WheelEventHandler } from "react";
 import InteractiveSlice from "./InteractiveSlice";
+import SliceViewport from "./SliceViewport";
 import { useI18n } from "./i18n";
-import { subjectSliceUrl } from "./viewerUrls";
+import { subjectSliceUrl, subjectSlice3DUrl } from "./viewerUrls";
 
 export default function RegistrationQC({ children, revision, atlasRevision, onWheel }: {
   children: ReactElement<ComponentProps<typeof InteractiveSlice>>;
@@ -44,7 +45,8 @@ export default function RegistrationQC({ children, revision, atlasRevision, onWh
         style={{ "--range-progress": `${blend}%` } as CSSProperties} />
       <div className="registration-qc-limits"><span>RARE</span><span>{t("Allen recalé")}</span></div>
     </div>
-    <div className="slice-image-wrap" onWheel={onWheel} aria-busy={!image && failure !== key}>
+    <SliceViewport zoomEnabled key={`${revision}:${plane}`} onWheel={onWheel} busy={!image && failure !== key}
+      brainMaskSrc={subjectSlice3DUrl(plane, index, revision)}>
       {cloneElement(children, {
         key: `qc:${revision}:${plane}:${index}`,
         imageSrc: subjectSliceUrl(plane, index, revision),
@@ -63,6 +65,6 @@ export default function RegistrationQC({ children, revision, atlasRevision, onWh
         {t(failure === key ? "Vérification indisponible. Vérifiez que le recalage est terminé." : "Préparation de la vue de vérification…")}
         {failure === key && <button type="button" onClick={() => setAttempt((value) => value + 1)}>{t("Réessayer")}</button>}
       </div>}
-    </div>
+    </SliceViewport>
   </div>;
 }

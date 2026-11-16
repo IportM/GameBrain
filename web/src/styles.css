@@ -3226,6 +3226,40 @@ h1 {
   cursor: ns-resize;
 }
 
+.slice-image-wrap.is-zoomable { overflow: hidden; }
+.slice-image-wrap.is-zoomable > img,
+.slice-image-wrap.is-zoomable > canvas {
+  transform: translate(var(--slice-pan-x, 0px), var(--slice-pan-y, 0px)) scale(var(--slice-zoom, 1));
+  transform-origin: center;
+}
+.slice-zoom-controls {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  border: 1px solid #4c5961;
+  border-radius: 4px;
+  background: #20262b;
+  cursor: default;
+}
+.slice-zoom-controls button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #edf0f2;
+  cursor: pointer;
+}
+.slice-zoom-controls button:hover:not(:disabled) { background: #35434b; }
+.slice-zoom-controls button:disabled { opacity: 0.35; cursor: default; }
+.slice-zoom-controls button:focus-visible { outline: 2px solid #74b8d1; outline-offset: -2px; }
+.slice-zoom-controls output { width: 46px; text-align: center; font-size: 11px; color: #d0d9df; font-variant-numeric: tabular-nums; }
+
 .slice-connectivity-overlay {
   z-index: 2;
   pointer-events: none;

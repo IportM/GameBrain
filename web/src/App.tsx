@@ -423,7 +423,7 @@ export default function App() {
   const activeModality = activeModalityId === null
     ? null
     : modalityState.modalities.find((modality) => modality.id === activeModalityId) ?? null;
-  const activeModalitySliceKey = activeModality
+  const activeModalitySliceKey = viewerSource === "subject" && activeModality
     ? `${activeModality.id}:${activePlane}:${sliceIndexesBySource.subject[activePlane]}`
     : null;
   const activeModalitySlice = activeModalitySliceKey !== null
@@ -3025,6 +3025,7 @@ export default function App() {
             </div>
           </header>
           <SliceToolbar
+            onProjectConnectivity={() => openImageTask("connectivity")}
             inspectionMode={viewerSource === "subject" && registrationQC && subjectAnnotationsAvailable}
             onExploreExperiments={exploreExperiments}
             onReturnToExperiment={() => {
@@ -3091,6 +3092,7 @@ export default function App() {
             onShowImportedMaskChange={setShowImportedMask}
           />
           <SliceComparison
+            zoomEnabled={viewerSource === "subject"}
             qcEnabled={viewerSource === "subject" && registrationQC && subjectAnnotationsAvailable}
             qcRevision={allenRegistrationState.finishedAt}
             enabled={viewerSource === "subject" && compareSlices && modalityState.modalities.length > 0}

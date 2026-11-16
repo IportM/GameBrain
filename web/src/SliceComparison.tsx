@@ -2,6 +2,7 @@ import { cloneElement, useEffect, useState, type ComponentProps, type ReactEleme
 import { RotateCcw } from "lucide-react";
 import InteractiveSlice from "./InteractiveSlice";
 import RegistrationQC from "./RegistrationQC";
+import SliceViewport from "./SliceViewport";
 import type { ModalityRecord } from "./data";
 import { useI18n } from "./i18n";
 import { loadModalitySlice, type ModalityPalette, type ModalitySlice } from "./modalityVolume";
@@ -79,7 +80,8 @@ function ComparisonPane({ children, modalities, initialId, revision }: {
           </div>
         </> : <span className="comparison-reference">{t("Image de référence")}</span>}
       </div>
-      <div className="slice-image-wrap" aria-busy={loading}>
+      <SliceViewport zoomEnabled busy={loading} key={`${revision}:${plane}`}
+        brainMaskSrc={subjectSlice3DUrl(plane, index, revision)} brainMaskData={data}>
         {!loading && cloneElement(children, {
           // Remount on slice changes so a previous image cannot masquerade as the current slice.
           key: `${modality?.id ?? "rare"}:${plane}:${index}`,
@@ -95,12 +97,12 @@ function ComparisonPane({ children, modalities, initialId, revision }: {
           {t(failure === key ? "Impossible de charger la coupe" : "Chargement de la coupe…")}
           {failure === key && <button type="button" onClick={() => setAttempt((value) => value + 1)}>{t("Réessayer")}</button>}
         </div>}
-      </div>
+      </SliceViewport>
     </section>
   );
 }
 
-export default function SliceComparison({ enabled, children, modalities, activeId, revision, className, onWheel, qcEnabled = false, qcRevision = null }: {
+export default function SliceComparison({ enabled, children, modalities, activeId, revision, className, onWheel, qcEnabled = false, qcRevision = null, zoomEnabled = false }: {
   enabled: boolean;
   children: SliceElement;
   modalities: ModalityRecord[];
@@ -110,9 +112,12 @@ export default function SliceComparison({ enabled, children, modalities, activeI
   onWheel: WheelEventHandler<HTMLDivElement>;
   qcEnabled?: boolean;
   qcRevision?: string | null;
+  zoomEnabled?: boolean;
 }) {
   if (qcEnabled) return <RegistrationQC revision={revision} atlasRevision={qcRevision} onWheel={onWheel}>{children}</RegistrationQC>;
-  if (!enabled) return <div className={className} onWheel={onWheel}>{children}</div>;
+  if (!enabled) return <SliceViewport key={`${revision}:${children.props.plane}`} className={className} onWheel={onWheel} zoomEnabled={zoomEnabled}
+    brainMaskSrc={zoomEnabled ? subjectSlice3DUrl(children.props.plane, children.props.index, revision) : undefined}
+    brainMaskData={children.props.modalitySliceData}>{children}</SliceViewport>;
   return <div className="slice-comparison" onWheel={onWheel}>
     <ComparisonPane key={`left:${revision}`} modalities={modalities} initialId={null} revision={revision}>{children}</ComparisonPane>
     <ComparisonPane key={`right:${revision}:${activeId}`} modalities={modalities} initialId={activeId ?? modalities[0]?.id ?? null} revision={revision}>{children}</ComparisonPane>
