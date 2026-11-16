@@ -1297,23 +1297,26 @@ h1 {
 }
 
 .registration-progress {
-  height: 4px;
-  margin-top: 16px;
+  height: 8px;
+  margin-top: 8px;
   overflow: hidden;
   background: #29312c;
 }
 
 .registration-progress span {
   display: block;
-  width: 36%;
+  width: 0;
   height: 100%;
   background: var(--ui-accent);
-  animation: registration-progress 1.4s ease-in-out infinite;
+  transition: width 180ms linear;
 }
-
-@keyframes registration-progress {
-  from { transform: translateX(-105%); }
-  to { transform: translateX(285%); }
+.workflow-progress { margin-top: 16px; }
+.workflow-progress-caption { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; }
+.workflow-progress-caption span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.workflow-progress-caption span:last-child { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.workflow-progress small { display: block; margin-top: 6px; color: #aab4ad; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+  .registration-progress span { transition: none; }
 }
 
 .registration-message {

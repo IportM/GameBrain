@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from task_progress import report_progress
 
 import numpy as np
 
@@ -243,6 +244,7 @@ def main() -> None:
             "antsRegistrationSyNQuick[s]" if args.quick else "antsRegistrationSyN[s]"
         )
         print(f"[INFO] Recalage {transform_type}: souris -> Allen", flush=True)
+        report_progress("Recalage Allen")
         registration = ants.registration(
             fixed=fixed_image,
             moving=moving_image,
@@ -253,6 +255,7 @@ def main() -> None:
             verbose=False,
         )
         print("[OK] Transformation SyN calculée", flush=True)
+        report_progress("Application des transformations")
         warped_moving = registration["warpedmovout"]
         warped_fixed = registration["warpedfixout"]
         dense_labels, label_lookup = encode_labels(labels_source, labels_image)

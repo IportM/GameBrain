@@ -1,5 +1,6 @@
 import { useI18n } from "./i18n";
 import { AlertCircle, CheckCircle2, Circle, LoaderCircle } from "lucide-react";
+import { progressPercent, type TaskProgress } from "./taskProgress";
 
 export type ImageTask = "image" | "atlas" | "modalities" | "connectivity";
 type TaskStatus = "idle" | "uploading" | "running" | "completed" | "failed";
@@ -50,14 +51,16 @@ export function ImageWorkflow({ active, hasImage, hasRegions, hasExperiment = fa
   );
 }
 
-export function WorkflowStatus({ status, title, message, logs = [] }: {
+export function WorkflowStatus({ status, title, message, logs = [], progress }: {
   status: TaskStatus;
   title: string;
   message: string;
   logs?: string[];
+  progress?: TaskProgress | null;
 }) {
   const { t } = useI18n();
   const running = status === "uploading" || status === "running";
+  const percent = progressPercent(progress);
   const Icon = status === "failed" ? AlertCircle : running ? LoaderCircle : status === "completed" ? CheckCircle2 : Circle;
   return <div className={`workflow-status is-${status}`}>
     <div className="workflow-status-heading" role={status === "failed" ? "alert" : "status"}>
@@ -65,7 +68,15 @@ export function WorkflowStatus({ status, title, message, logs = [] }: {
       <strong>{t(title)}</strong>
     </div>
     {message && (running || status === "failed") && <p className="workflow-status-message" aria-live="polite">{t(message)}</p>}
-    {running && <div className="registration-progress" role="progressbar" aria-label={t(title)}><span /></div>}
+    {running && <div className="workflow-progress">
+      <div className="workflow-progress-caption"><span>{progress ? t(progress.label) : t("Calcul en cours")}</span>
+        <span>{percent !== null ? `${percent}%` : t("En cours")}</span></div>
+      <div className="registration-progress" role="progressbar" aria-label={progress ? t(progress.label) : t(title)}
+        aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}>
+        <span style={{ width: `${percent ?? 0}%` }} />
+      </div>
+      {percent !== null && progress?.unit === "slices" && <small>{progress.completed} / {progress.total} {t("coupes")}</small>}
+    </div>}
     {logs.length > 0 && <details className="workflow-logs">
       <summary>{t("Journal technique")}</summary>
       {message && !running && status !== "failed" && <p>{t(message)}</p>}

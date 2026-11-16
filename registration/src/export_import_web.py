@@ -1,6 +1,7 @@
 import argparse
 import json
 from pathlib import Path
+from task_progress import report_progress
 
 import nibabel as nib
 import numpy as np
@@ -28,6 +29,9 @@ def export_slices(volume: np.ndarray, mask: np.ndarray, output: Path) -> dict[st
     positive = finite[finite > 0]
     low, high = np.percentile(positive, (1, 99.5))
     counts: dict[str, int] = {}
+    total = sum(volume.shape[int(p["axis"])] for p in PLANES.values())
+    completed = 0
+    report_progress("Préparation des coupes", 0, total)
     for plane, definition in PLANES.items():
         count = int(volume.shape[int(definition["axis"])])
         counts[plane] = count
@@ -71,6 +75,9 @@ def export_slices(volume: np.ndarray, mask: np.ndarray, output: Path) -> dict[st
                 lossless=True,
                 method=4,
             )
+            completed += 1
+            if completed % 5 == 0 or completed == total:
+                report_progress("Préparation des coupes", completed, total)
     return counts
 
 
@@ -118,7 +125,9 @@ def main() -> None:
 
     output.mkdir(parents=True, exist_ok=True)
     counts = export_slices(volume, mask, output)
+    report_progress("Préparation du modèle 3D")
     export_mesh(mask, spacing, output)
+    report_progress("Finalisation")
     size = np.asarray(volume.shape, dtype=np.float32) * spacing
     manifest = {
         "shape": [int(value) for value in volume.shape],

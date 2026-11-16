@@ -5,17 +5,18 @@ import {
   DoubleSide,
   Light,
   Matrix4,
-  Mesh,
   PerspectiveCamera,
   Quaternion,
   SRGBColorSpace,
   Vector3,
+  type Plane,
 } from "three";
 
 import { sliceUrl, type SlicePlane, type SliceResolution } from "./atlas";
 import type { ImportedManifest } from "./data";
-import { slicePlaneTransform } from "./sceneGeometry";
-import { useConnectivitySliceTexture } from "./useConnectivitySliceTexture";
+import { slicePlaneTransform, sliceSectionSide } from "./sceneGeometry";
+import { useConnectivitySliceTexture, useSliceOutlineTexture } from "./useConnectivitySliceTexture";
+import { CUT_SURFACE_STENCIL } from "./cutSurfaceMask";
 
 const SELECTED_REGION_LAYER = 1;
 
@@ -120,6 +121,9 @@ export function AtlasSlicePlane({
 }
 
 export function AtlasSliceSection({
+  clippingPlane,
+  annotationOutlineSrc,
+  regionColorsVisible = true,
   connectivityProjectionSrc,
   connectivityInjectionSrc,
   connectivityOpacity = 1,
@@ -127,17 +131,17 @@ export function AtlasSliceSection({
   imageUrl,
   importedManifest,
   index,
-  overlayLayer = true,
   plane,
   resolution,
 }: SliceDisplayProps & {
-  imageUrl?: string; overlayLayer?: boolean;
+  imageUrl?: string; clippingPlane: Plane;
+  annotationOutlineSrc?: string; regionColorsVisible?: boolean;
   connectivityProjectionSrc?: string; connectivityInjectionSrc?: string;
   connectivityOpacity?: number; connectivityThreshold?: number;
 }) {
-  const meshRef = useRef<Mesh>(null);
   const texture = useTexture(imageUrl ?? sliceUrl(plane, index, resolution));
   const connectivityTexture = useConnectivitySliceTexture(connectivityProjectionSrc, connectivityInjectionSrc, connectivityOpacity, connectivityThreshold);
+  const annotationTexture = useSliceOutlineTexture(annotationOutlineSrc);
   const transform = useMemo(
     () => importedManifest
       ? importedSlicePlaneTransform(plane, index, importedManifest)
@@ -148,33 +152,44 @@ export function AtlasSliceSection({
     sliceTexture: { value: texture },
     connectivityTexture: { value: connectivityTexture ?? texture },
     hasConnectivity: { value: connectivityTexture !== null },
-  }), [texture, connectivityTexture]);
+    annotationTexture: { value: annotationTexture ?? texture },
+    hasAnnotations: { value: annotationTexture !== null },
+    regionColorsVisible: { value: regionColorsVisible },
+  }), [texture, connectivityTexture, annotationTexture, regionColorsVisible]);
   useEffect(() => {
     texture.colorSpace = SRGBColorSpace;
     texture.anisotropy = 4;
     texture.needsUpdate = true;
   }, [texture]);
-  useLayoutEffect(() => {
-    meshRef.current?.layers.set(overlayLayer ? SELECTED_REGION_LAYER : 0);
-  }, [overlayLayer]);
   return (
-    <mesh ref={meshRef} position={transform.position} quaternion={transform.quaternion} raycast={() => undefined} renderOrder={2}>
+    <mesh position={transform.position} quaternion={transform.quaternion} raycast={() => undefined} renderOrder={2}>
       <planeGeometry args={transform.size} />
       <shaderMaterial
+        {...CUT_SURFACE_STENCIL}
         uniforms={uniforms}
-        side={DoubleSide}
+        side={sliceSectionSide(transform.quaternion, clippingPlane.normal)}
+        depthTest
+        depthWrite
         vertexShader={`varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`}
         fragmentShader={`
           uniform sampler2D sliceTexture;
           uniform sampler2D connectivityTexture;
           uniform bool hasConnectivity;
+          uniform sampler2D annotationTexture;
+          uniform bool hasAnnotations;
+          uniform bool regionColorsVisible;
           varying vec2 vUv;
           void main() {
             vec4 sliceColor = texture2D(sliceTexture, vUv);
             if (sliceColor.a < 0.5) discard;
+            if (!regionColorsVisible) sliceColor.rgb = vec3(dot(sliceColor.rgb, vec3(0.2126, 0.7152, 0.0722)));
             if (hasConnectivity) {
               vec4 signal = texture2D(connectivityTexture, vUv);
               sliceColor.rgb = mix(sliceColor.rgb, signal.rgb, signal.a);
+            }
+            if (hasAnnotations) {
+              vec4 outline = texture2D(annotationTexture, vUv);
+              sliceColor.rgb = mix(sliceColor.rgb, outline.rgb, outline.a);
             }
             gl_FragColor = vec4(sliceColor.rgb, 1.0);
           }`}

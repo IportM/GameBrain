@@ -1,8 +1,10 @@
 import type { SlicePlane } from "./atlas";
+import type { TaskProgress } from "./taskProgress";
 
 export type RegistrationStatus = "idle" | "uploading" | "running" | "completed" | "failed";
 
 export type AllenRegistrationState = {
+  progress?: TaskProgress | null;
   status: "idle" | "running" | "completed" | "failed";
   startedAt: string | null;
   finishedAt: string | null;
@@ -48,6 +50,8 @@ export type ConnectivitySearchResult = {
 };
 
 export type ConnectivityState = {
+  progress?: TaskProgress | null;
+  nativeProgress?: TaskProgress | null;
   status: "idle" | "running" | "completed" | "failed";
   startedAt: string | null;
   finishedAt: string | null;
@@ -99,6 +103,7 @@ export type ImportedManifest = {
 };
 
 export type RegistrationState = {
+  progress?: TaskProgress | null;
   status: RegistrationStatus;
   startedAt: string | null;
   finishedAt: string | null;
@@ -128,6 +133,7 @@ export type ModalityRecord = {
 };
 
 export type ModalityState = {
+  progress?: TaskProgress | null;
   status: "idle" | "uploading" | "completed" | "failed";
   message: string;
   modalities: ModalityRecord[];

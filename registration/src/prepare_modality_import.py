@@ -1,6 +1,7 @@
 import argparse
 import json
 from pathlib import Path
+from task_progress import report_progress
 
 import nibabel as nib
 from nibabel.processing import resample_from_to
@@ -31,6 +32,9 @@ def export_slices(
     display = np.flip(np.transpose(volume, (1, 2, 0)), axis=(0, 1))
     display_mask = np.flip(np.transpose(mask, (1, 2, 0)), axis=(0, 1))
     counts: dict[str, int] = {}
+    total = sum(display.shape[int(p["axis"])] for p in PLANES.values())
+    completed = 0
+    report_progress("Préparation des coupes", 0, total)
     for plane, definition in PLANES.items():
         count = int(display.shape[int(definition["axis"])])
         counts[plane] = count
@@ -57,6 +61,9 @@ def export_slices(
                 lossless=True,
                 method=4,
             )
+            completed += 1
+            if completed % 5 == 0 or completed == total:
+                report_progress("Préparation des coupes", completed, total)
     return counts
 
 
@@ -156,6 +163,7 @@ def main() -> None:
     low = float(np.percentile(measured, 1))
     high = float(np.percentile(measured, 99))
     slice_counts = export_slices(data, mask, low, high, args.output)
+    report_progress("Finalisation")
     display_volume = np.flip(np.transpose(data, (1, 2, 0)), axis=(0, 1))
     display_mask = np.flip(np.transpose(mask, (1, 2, 0)), axis=(0, 1))
     np.asarray(display_volume, dtype="<f4").tofile(args.output / "volume.float32")

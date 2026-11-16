@@ -61,6 +61,7 @@ import {
   subjectAllenMaskUrl,
   subjectAllenDetailedMaskUrl,
   subjectAllenDetailedOutlineUrl,
+  subjectAllenDetailedRegionUrl,
   subjectMaskOutlineUrl,
   subjectSlice3DUrl,
   subjectSliceUrl,
@@ -75,6 +76,9 @@ import RegionTree from "./RegionTree";
 import Workspace from "./Workspace";
 import { ImageWorkflow, WorkflowStatus, type ImageTask } from "./ImageWorkflow";
 import { useDialogFocus } from "./useDialogFocus";
+import { regionHoverDelay } from "./regionMeshPerformance";
+import { uploadFile } from "./uploadFile";
+import type { TaskProgress } from "./taskProgress";
 import { ChevronLeft, ChevronRight, Focus, LockKeyhole, MousePointer2, RotateCcw, X } from "lucide-react";
 import {
   detailedAnnotationMaskUrl,
@@ -191,6 +195,8 @@ export default function App() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [modalityTask, setModalityTask] = useState<"modality" | "session">("modality");
   const [modalityState, setModalityState] = useState<ModalityState>(INITIAL_MODALITY_STATE);
+  const [imageUploadProgress, setImageUploadProgress] = useState<TaskProgress | null>(null);
+  const [modalityUploadProgress, setModalityUploadProgress] = useState<TaskProgress | null>(null);
   const [activeModalityId, setActiveModalityId] = useState<string | null>(null);
   const [compareSlices, setCompareSlices] = useState(false);
   const [registrationQC, setRegistrationQC] = useState(false);
@@ -476,11 +482,16 @@ export default function App() {
       setNativeSceneDetailedRegionId(targetId);
       return;
     }
+    const delay = regionHoverDelay(subjectAllenDetailedRegionUrl(targetId, allenRegistrationState.finishedAt));
+    if (delay === 0) {
+      setNativeSceneDetailedRegionId(targetId);
+      return;
+    }
     const timer = window.setTimeout(() => {
       setNativeSceneDetailedRegionId(targetId);
-    }, 140);
+    }, delay);
     return () => window.clearTimeout(timer);
-  }, [hasRegionSelection, hoveredDetailedRegionId, selectedDetailedRegionId, viewerSource]);
+  }, [allenRegistrationState.finishedAt, hasRegionSelection, hoveredDetailedRegionId, selectedDetailedRegionId, viewerSource]);
   const sliceAnnotationsEnabled =
     viewerSource === "allen" || (viewerSource === "subject" && subjectAnnotationsAvailable);
   const sliceIndexes = sliceIndexesBySource[viewerSource];
@@ -1436,11 +1447,8 @@ export default function App() {
       fileName: registrationFile.name,
     }));
     try {
-      const response = await fetch("/api/import/start", {
-        method: "POST",
-        headers: { "X-File-Name": encodeURIComponent(registrationFile.name) },
-        body: registrationFile,
-      });
+      const response = await uploadFile("/api/import/start", registrationFile,
+        { "X-File-Name": encodeURIComponent(registrationFile.name) }, setImageUploadProgress);
       const nextState = await readImportResponse(response);
       setRegistrationState(nextState);
       if (!response.ok) {
@@ -1489,16 +1497,12 @@ export default function App() {
       message: "Import et validation de la modalité",
     }));
     try {
-      const response = await fetch("/api/modalities/import", {
-        method: "POST",
-        headers: {
+      const response = await uploadFile("/api/modalities/import", modalityFile, {
           "X-File-Name": encodeURIComponent(modalityFile.name),
           "X-Modality-Name": encodeURIComponent(modalityName.trim()),
           "X-Modality-Alignment": modalitySession === "other" ? "session-rare-aligned" : "same-session-aligned",
           ...(modalitySession === "other" ? { "X-Session-Id": selectedSessionId } : {}),
-        },
-        body: modalityFile,
-      });
+        }, setModalityUploadProgress);
       const nextState = await readModalityResponse(response);
       setModalityState(nextState);
       if (!response.ok) throw new Error(nextState.message);
@@ -1520,9 +1524,8 @@ export default function App() {
     setModalityState((current) => ({ ...current, status: "uploading", message: "Import et recalage de la nouvelle session" }));
     setModalityAligned(false);
     try {
-      const response = await fetch("/api/sessions/import", {
-        method: "POST", headers: { "X-File-Name": encodeURIComponent(file.name), "X-Session-Name": encodeURIComponent(name) }, body: file,
-      });
+      const response = await uploadFile("/api/sessions/import", file,
+        { "X-File-Name": encodeURIComponent(file.name), "X-Session-Name": encodeURIComponent(name) }, setModalityUploadProgress);
       const next = await readModalityResponse(response);
       setModalityState(next);
       if (!response.ok) throw new Error(next.message);
@@ -1809,6 +1812,11 @@ export default function App() {
   };
   const connectivitySliceProjectionSrc = connectivitySliceSource("projection");
   const connectivitySliceInjectionSrc = connectivitySliceSource("injection");
+  const sliceAnnotationOutlineSrc = viewerSource === "allen" && showAllenRegionColors
+    ? detailedAnnotationOutlineUrl(activePlane, sliceIndex, sliceResolution)
+    : viewerSource === "subject" && subjectAnnotationsAvailable && showImportedAnnotations
+      ? subjectAllenDetailedOutlineUrl(activePlane, sliceIndex, allenRegistrationState.finishedAt)
+      : undefined;
 
   return (
     <main className="app-shell">
@@ -2006,6 +2014,7 @@ export default function App() {
                 }}>{t("Conserver l'image actuelle")}</button>
               )}
               <WorkflowStatus
+                progress={imageUploadProgress ?? registrationState.progress}
                 status={registrationPending ? "running" : registrationState.status}
                 title={registrationState.status === "failed" ? t("Import interrompu")
                   : registrationState.status === "uploading" ? t("Transfert de l'image")
@@ -2083,6 +2092,7 @@ export default function App() {
                 </div>
               </div>
               <WorkflowStatus status={allenRegistrationState.status}
+                progress={allenRegistrationState.progress}
                 title={allenRegistrationState.status === "running" ? t("Recalage et préparation des régions en cours")
                   : allenRegistrationState.status === "failed" ? t("Recalage interrompu")
                     : subjectAnnotationsAvailable ? t("Régions Allen disponibles")
@@ -2207,6 +2217,7 @@ export default function App() {
               </>}
               </div>}
               <WorkflowStatus status={modalityState.status}
+                progress={modalityUploadProgress ?? modalityState.progress}
                 title={modalityState.status === "uploading" ? t("Traitement en cours")
                   : modalityState.status === "failed" ? t("Opération sur la modalité interrompue")
                     : modalityState.modalities.length > 0 ? t(`${modalityState.modalities.length} modalité${modalityState.modalities.length > 1 ? "s" : ""} disponible${modalityState.modalities.length > 1 ? "s" : ""}`)
@@ -2495,11 +2506,13 @@ export default function App() {
                 </label>
               )}
               <WorkflowStatus status={connectivityState.status}
+                progress={connectivityState.progress}
                 title={connectivityState.status === "running" ? t("Préparation de l'expérience Allen")
                   : connectivityState.status === "failed" ? t("Chargement de l'expérience interrompu")
                     : connectivityState.hasViewerAssets ? t("Carte disponible dans l'atlas Allen") : t("Aucune expérience chargée")}
                 message={connectivityState.message} logs={connectivityState.logTail} />
               {connectivityState.nativeStatus !== "idle" && <WorkflowStatus status={connectivityState.nativeStatus}
+                progress={connectivityState.nativeProgress}
                 title={connectivityState.nativeStatus === "running" ? t("Projection dans l'image personnelle en cours")
                   : connectivityState.nativeStatus === "failed" ? t("Projection dans l'image interrompue")
                     : t("Carte disponible dans l'image personnelle")}
@@ -2869,6 +2882,8 @@ export default function App() {
                 connectivityOpacity={connectivityOpacity}
                 connectivitySliceProjectionSrc={connectivitySliceProjectionSrc}
                 connectivitySliceInjectionSrc={connectivitySliceInjectionSrc}
+                sliceAnnotationOutlineSrc={sliceAnnotationOutlineSrc}
+                sliceRegionColorsVisible={viewerSource !== "allen" || showAllenRegionColors}
                 connectivityProjectionUrl={
                   connectivityVisible && projectionVisible
                     ? viewerSource === "allen" && connectivityState.hasViewerAssets
@@ -3086,13 +3101,7 @@ export default function App() {
             onWheel={handleSliceWheel}
           >
             <InteractiveSlice
-              annotationOutlineSrc={
-                viewerSource === "allen" && showAllenRegionColors
-                  ? detailedAnnotationOutlineUrl(activePlane, sliceIndex, sliceResolution)
-                  : viewerSource === "subject" && subjectAnnotationsAvailable && showImportedAnnotations
-                    ? subjectAllenDetailedOutlineUrl(activePlane, sliceIndex, allenRegistrationState.finishedAt)
-                    : undefined
-              }
+              annotationOutlineSrc={sliceAnnotationOutlineSrc}
               annotationsEnabled={sliceAnnotationsEnabled}
               annotationsVisible={viewerSource === "allen"
                 ? showAllenRegionColors

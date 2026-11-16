@@ -40,7 +40,7 @@ class ConnectivityPreparationTests(unittest.TestCase):
         barrier = threading.Barrier(3)
         calls = []
 
-        def download(_experiment, image, _resolution, _destination):
+        def download(_experiment, image, _resolution, _destination, _progress=None):
             calls.append(image)
             barrier.wait(timeout=3)
 
@@ -61,6 +61,29 @@ class ConnectivityPreparationTests(unittest.TestCase):
             self.assertCountEqual(calls, preparation.VOLUMES)
             manifest = json.loads((root / "result/web/manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["experiment_id"], 42)
+
+    def test_download_progress_waits_for_all_sizes_then_aggregates(self):
+        progress = preparation.DownloadProgress()
+        with patch.object(preparation, "report_progress") as report:
+            progress.update("projection_density", 20, 100, True)
+            report.assert_called_with("Téléchargement des volumes Allen")
+            progress.update("injection_density", 10, 50, True)
+            progress.update("data_mask", 25, 25, True)
+            report.assert_called_with("Téléchargement des volumes Allen", 55, 175, "bytes")
+            progress.update("projection_density", 100, 100, True)
+            progress.update("injection_density", 50, 50, True)
+            report.assert_called_with("Téléchargement des volumes Allen", 175, 175, "bytes")
+
+    def test_slice_progress_spans_all_three_orientations(self):
+        volume = np.ones((4, 3, 2), dtype=np.float32)
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(preparation, "report_progress") as report, \
+                redirect_stdout(io.StringIO()):
+            preparation.export_overlays(volume, volume, volume > 0, Path(directory))
+            values = [call.args for call in report.call_args_list]
+            self.assertEqual(values[0], ("Préparation des coupes", 0, 9))
+            self.assertEqual(values[-1], ("Préparation des coupes", 9, 9))
+            self.assertEqual([v[1] for v in values], sorted(v[1] for v in values))
 
 
 if __name__ == "__main__":

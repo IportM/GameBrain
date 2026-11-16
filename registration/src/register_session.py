@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from task_progress import report_progress
 import shutil
 import subprocess
 import sys
@@ -68,6 +69,7 @@ def main():
     nib.save(load_scalar(args.input), output / "rare.nii.gz")
     scripts = Path(__file__).resolve().parent
     print("Extraction du cerveau de la nouvelle session", flush=True)
+    report_progress("Extraction du cerveau")
     subprocess.run([
         sys.executable, str(scripts / "extract_mouse_brain.py"),
         "--input", str(output / "rare.nii.gz"), "--mask-output", str(output / "brain_mask.nii.gz"),
@@ -75,6 +77,7 @@ def main():
         "--cache-dir", str(scripts.parent / "resources" / "antsxnet"),
     ], check=True)
     print("Recalage rigide RARE de session vers RARE de reference", flush=True)
+    report_progress("Recalage de la session")
     with tempfile.TemporaryDirectory(dir=output) as directory:
         registration = ants.registration(
             fixed=ants.image_read(str(args.reference_brain)),

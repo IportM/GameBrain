@@ -8,6 +8,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from time import perf_counter
+from threading import Lock
+from task_progress import report_progress
 
 import nrrd
 import numpy as np
@@ -24,14 +26,39 @@ API_URL = "https://api.brain-map.org/grid_data/download_file/{experiment_id}"
 ATLAS_CENTER_MM = np.asarray((7.50001, 3.394489, 5.687737), dtype=np.float32)
 
 
+class DownloadProgress:
+    def __init__(self):
+        self.lock = Lock()
+        self.files = {}
+        self.last_report = 0
+
+    def update(self, image, completed, total, force=False):
+        with self.lock:
+            self.files[image] = (completed, total)
+            now = perf_counter()
+            if not force and now - self.last_report < 0.25:
+                return
+            self.last_report = now
+            if len(self.files) == len(VOLUMES) and all(v[1] for v in self.files.values()):
+                report_progress("Téléchargement des volumes Allen",
+                                sum(v[0] for v in self.files.values()),
+                                sum(v[1] for v in self.files.values()), "bytes")
+            else:
+                report_progress("Téléchargement des volumes Allen")
+
+
 def download_volume(
     experiment_id: int,
     image: str,
     resolution: int,
     destination: Path,
+    progress=None,
 ) -> None:
     if destination.exists() and destination.stat().st_size > 0:
         print(f"[CACHE] {destination.name}", flush=True)
+        if progress:
+            size = destination.stat().st_size
+            progress.update(image, size, size, True)
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".part")
@@ -44,15 +71,22 @@ def download_volume(
     request = urllib.request.Request(url, headers={"User-Agent": "GameBrain/0.1"})
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
+            total = int(response.headers.get("Content-Length", 0))
+            if progress:
+                progress.update(image, 0, total, True)
             with temporary.open("wb") as output:
                 downloaded = 0
                 last_progress = started
                 while block := response.read(512 * 1024):
                     output.write(block)
                     downloaded += len(block)
+                    if progress:
+                        progress.update(image, downloaded, total)
                     if perf_counter() - last_progress >= 5:
                         print(f"[INFO] {image}: {downloaded / 1024**2:.1f} Mio reçus", flush=True)
                         last_progress = perf_counter()
+            if progress:
+                progress.update(image, downloaded, total or downloaded, True)
         temporary.replace(destination)
         print(f"[OK] {image} téléchargé en {perf_counter() - started:.1f} s", flush=True)
     finally:
@@ -178,6 +212,9 @@ def export_overlays(
     output: Path,
 ) -> dict[str, int]:
     counts: dict[str, int] = {}
+    total = sum(projection.shape[int(p["axis"])] for p in PLANES)
+    done = 0
+    report_progress("Préparation des coupes", 0, total)
     for plane in PLANES:
         name = str(plane["name"])
         axis = int(plane["axis"])
@@ -206,8 +243,11 @@ def export_overlays(
                 )
         with ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1)) as executor:
             for completed, _ in enumerate(executor.map(write_slice, range(count)), start=1):
+                if completed % 5 == 0 or completed == count:
+                    report_progress("Préparation des coupes", done + completed, total)
                 if completed % 25 == 0 or completed == count:
                     print(f"[INFO] Coupes {name}: {completed}/{count}", flush=True)
+        done += count
     return counts
 
 
@@ -235,9 +275,10 @@ def main() -> None:
     }
     started = perf_counter()
     print("[INFO] Récupération des trois volumes Allen en parallèle", flush=True)
+    progress = DownloadProgress()
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [
-            executor.submit(download_volume, args.experiment_id, image, args.resolution, path)
+            executor.submit(download_volume, args.experiment_id, image, args.resolution, path, progress)
             for image, path in paths.items()
         ]
         for future in futures:
@@ -245,6 +286,7 @@ def main() -> None:
     print(f"[OK] Volumes disponibles en {perf_counter() - started:.1f} s", flush=True)
 
     print("[INFO] Lecture des volumes et du masque anatomique", flush=True)
+    report_progress("Lecture des volumes")
     volumes = {image: np.asarray(nrrd.read(path)[0]) for image, path in paths.items()}
     shapes = {image: volume.shape for image, volume in volumes.items()}
     if len(set(shapes.values())) != 1:
@@ -284,6 +326,7 @@ def main() -> None:
     )
     print(f"[OK] Coupes préparées en {perf_counter() - slices_started:.1f} s", flush=True)
     print("[INFO] Préparation des volumes 3D", flush=True)
+    report_progress("Préparation du modèle 3D")
     projection_signal = projection_strength(volumes["projection_density"], valid_mask)
     injection_signal = injection_strength(volumes["injection_density"], valid_mask)
     point_clouds = {

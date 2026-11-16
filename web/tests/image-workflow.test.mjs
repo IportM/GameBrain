@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { compiledModule } from "./render-module.mjs";
 
 const { ImageWorkflow, WorkflowStatus } = await import(compiledModule(new URL("../src/ImageWorkflow.tsx", import.meta.url)));
+const { uploadFile } = await import(compiledModule(new URL("../src/uploadFile.ts", import.meta.url)));
 const defaults = {
   active: "image", hasImage: false, hasRegions: false, modalityCount: 0,
   nativeConnectivity: false, importStatus: "idle", atlasStatus: "idle", modalityStatus: "idle",
@@ -62,6 +63,23 @@ test("busy progress does not invent a completion percentage", () => {
   assert.doesNotMatch(html, /aria-valuenow/);
 });
 
+test("measurable progress has a real percentage and slice counter", () => {
+  const html = renderToStaticMarkup(createElement(WorkflowStatus, {
+    status: "running", title: "Import", message: "", progress: { label: "Préparation des coupes", completed: 25, total: 100, unit: "slices" },
+  }));
+  assert.match(html, /aria-valuenow="25"/);
+  assert.match(html, /width:25%/);
+  assert.match(html, /25 \/ 100 coupes/);
+  assert.match(html, /is-spinning/);
+});
+
+test("invalid totals stay indeterminate and failed jobs have no progress bar", () => {
+  const progress = { label: "Upload", completed: 4, total: 0 };
+  const html = renderToStaticMarkup(createElement(WorkflowStatus, { status: "running", title: "Import", message: "", progress }));
+  assert.doesNotMatch(html, /aria-valuenow/);
+  assert.doesNotMatch(renderToStaticMarkup(createElement(WorkflowStatus, { status: "failed", title: "Import", message: "", progress })), /role="progressbar"/);
+});
+
 test("routine messages do not repeat the idle state", () => {
   const html = renderToStaticMarkup(createElement(WorkflowStatus, { status: "idle", title: "Choisir une image NIfTI", message: "Selectionnez une image" }));
   assert.match(html, /Choisir une image NIfTI/);
@@ -72,4 +90,38 @@ test("completed messages remain available inside the collapsed log", () => {
   const html = renderToStaticMarkup(createElement(WorkflowStatus, { status: "completed", title: "Image disponible", message: "Image prete dans le visualiseur", logs: ["OK"] }));
   assert.doesNotMatch(html, /workflow-status-message/);
   assert.match(html, /<details class="workflow-logs"><summary>Journal technique<\/summary><p>Image prete/);
+});
+
+test("file uploads report bytes and preserve HTTP error responses", async () => {
+  const original = globalThis.XMLHttpRequest;
+  let request;
+  globalThis.XMLHttpRequest = class {
+    upload = {};
+    headers = {};
+    constructor() { request = this; }
+    open(method, url) { this.method = method; this.url = url; }
+    setRequestHeader(name, value) { this.headers[name] = value; }
+    send(file) { this.file = file; }
+    getResponseHeader() { return "application/json"; }
+  };
+  try {
+    const records = [];
+    const file = { size: 100 };
+    const pending = uploadFile("/api/import/start", file, { "X-File-Name": "test.nii" }, (progress) => records.push(progress));
+    assert.equal(request.file, file);
+    assert.equal(request.method, "POST");
+    request.upload.onprogress({ loaded: 25, total: 100, lengthComputable: true });
+    assert.equal(records.at(-1).completed, 25);
+    request.upload.onload();
+    assert.equal(records.at(-1), null);
+    request.status = 422;
+    request.responseText = '{"message":"Invalid image"}';
+    request.onload();
+    const response = await pending;
+    assert.equal(response.ok, false);
+    assert.deepEqual(await response.json(), { message: "Invalid image" });
+    const failed = uploadFile("/api/import/start", file, {}, () => {});
+    request.onerror();
+    await assert.rejects(failed, /Transfert du fichier interrompu/);
+  } finally { globalThis.XMLHttpRequest = original; }
 });

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from task_progress import report_progress
 
 import ants
 import nrrd
@@ -88,6 +89,7 @@ def main() -> None:
     ]
     native_volumes: dict[str, np.ndarray] = {}
     output.mkdir(parents=True, exist_ok=True)
+    report_progress("Application des transformations")
     for name in ("projection_density", "injection_density", "data_mask"):
         source_path = connectivity / connectivity_manifest["volumes"][name].replace("\\", "/")
         source = registration_grid(np.asarray(nrrd.read(source_path)[0]), step)
@@ -118,6 +120,7 @@ def main() -> None:
     injection = display_grid(native_volumes["injection_density"])
     display_valid = display_grid(valid)
     counts = export_overlays(projection, injection, display_valid, web)
+    report_progress("Préparation du modèle 3D")
     projection_signal = projection_strength(projection, display_valid)
     injection_signal = injection_strength(injection, display_valid)
     volume_shape = export_volume(projection_signal, web / "volumes" / "projection.bin")

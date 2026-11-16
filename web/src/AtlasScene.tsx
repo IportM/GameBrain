@@ -13,6 +13,7 @@ import { Environment, OrbitControls, useGLTF } from "@react-three/drei";
 import { MOUSE, Plane, SRGBColorSpace, Vector3 } from "three";
 
 import ConnectivityVolume from "./ConnectivityVolume";
+import { connectivityCutMask } from "./cutSurfaceMask";
 import ExperimentMarkers from "./ExperimentMarkers";
 import { clearConnectivityVolumeCache } from "./connectivityVolumeCache";
 import {
@@ -117,6 +118,8 @@ function AtlasScene({
   connectivityThreshold,
   connectivitySliceProjectionSrc,
   connectivitySliceInjectionSrc,
+  sliceAnnotationOutlineSrc,
+  sliceRegionColorsVisible,
   connectivityVolumeSpacingMm,
   connectivityVolumeShape,
   detailedRegion,
@@ -160,6 +163,8 @@ function AtlasScene({
   connectivityThreshold: number;
   connectivitySliceProjectionSrc?: string;
   connectivitySliceInjectionSrc?: string;
+  sliceAnnotationOutlineSrc?: string;
+  sliceRegionColorsVisible: boolean;
   connectivityVolumeSpacingMm: number | [number, number, number];
   connectivityVolumeShape?: [number, number, number];
   detailedRegion: DetailedAnnotationStructure | null;
@@ -343,7 +348,7 @@ function AtlasScene({
       camera={{ position: [15, 13, 16], fov: 38, near: 0.1, far: 100 }}
       dpr={connectivityProjectionUrl ? 1 : [1, 1.5]}
       frameloop="demand"
-      gl={{ antialias: true, outputColorSpace: SRGBColorSpace }}
+      gl={{ antialias: true, stencil: true, outputColorSpace: SRGBColorSpace }}
       onCreated={({ gl, raycaster }) => {
         gl.localClippingEnabled = true;
         raycaster.layers.enable(1);
@@ -454,6 +459,7 @@ function AtlasScene({
             <mesh position={connectivityInjectionCenter} renderOrder={11}>
               <sphereGeometry args={[connectivityInjectionRadius, 24, 16]} />
               <meshStandardMaterial
+                {...connectivityCutMask(slice3DMode === "clip")}
                 color="#ff4b35"
                 emissive="#ff2f24"
                 emissiveIntensity={0.65}
@@ -475,6 +481,9 @@ function AtlasScene({
           <Suspense fallback={null}>
             {slice3DMode === "clip" && (
               <AtlasSliceSectionView
+                clippingPlane={clippingPlane}
+                annotationOutlineSrc={sliceAnnotationOutlineSrc}
+                regionColorsVisible={sliceRegionColorsVisible}
                 connectivityProjectionSrc={connectivitySliceProjectionSrc}
                 connectivityInjectionSrc={connectivitySliceInjectionSrc}
                 connectivityOpacity={connectivityOpacity}

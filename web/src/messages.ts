@@ -1,6 +1,18 @@
 export type Language = "fr" | "en";
 
 export const english: Record<string, string> = {
+  "Transfert du fichier": "Uploading file",
+  "Transfert du fichier interrompu": "File upload interrupted",
+  "coupes": "slices",
+  "Téléchargement des volumes Allen": "Downloading Allen volumes",
+  "Lecture des volumes": "Reading volumes",
+  "Préparation des coupes": "Preparing slices",
+  "Préparation des annotations": "Preparing annotations",
+  "Préparation du modèle 3D": "Preparing 3D model",
+  "Finalisation": "Finalizing",
+  "Extraction du cerveau": "Extracting brain",
+  "Application des transformations": "Applying transforms",
+  "Recalage de la session": "Session registration",
   "Aucune progression du chargement depuis cinq minutes": "No loading progress for five minutes",
   "Le chargement a dépassé la limite totale de trente minutes": "Loading exceeded the thirty-minute total limit",
   "Mac Intel : macOS 15 ou plus récent requis pour ANTsPy 0.6.3": "Intel Mac: macOS 15 or newer required for ANTsPy 0.6.3",

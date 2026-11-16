@@ -3,6 +3,7 @@ import importlib.util
 import subprocess
 import sys
 from pathlib import Path
+from task_progress import report_progress
 
 
 def require_module(name: str) -> None:
@@ -14,6 +15,7 @@ def require_module(name: str) -> None:
 
 
 def run_stage(label: str, command: list[str]) -> None:
+    report_progress(label)
     print(label, flush=True)
     try:
         subprocess.run(command, check=True)

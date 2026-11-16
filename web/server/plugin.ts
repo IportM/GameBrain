@@ -25,6 +25,7 @@ import {
 import { isLocalApiRequest } from "./security";
 import { createPythonEnvironment } from "./pythonEnvironment";
 import { createProgressWatchdog } from "./progressWatchdog";
+import { createTaskProgress } from "./taskProgress";
 import { downloadedExperiments, invalidateConnectivityLibrary, readyExperiment, readExperimentMetadata } from "./connectivityLibrary";
 type ImportStatus = "idle" | "uploading" | "running" | "completed" | "failed";
 type ImportState = {
@@ -175,6 +176,11 @@ export function importApi(): Plugin {
   };
   let modalityStatus: "idle" | "uploading" | "completed" | "failed" = "idle";
   let modalityMessage = "Importez une modalité NIfTI 3D";
+  const importProgress = createTaskProgress();
+  const registrationProgress = createTaskProgress();
+  const connectivityProgress = createTaskProgress();
+  const nativeProgress = createTaskProgress();
+  const modalityProgress = createTaskProgress();
 
   const viewerManifest = () => {
     if (!currentOutput) return null;
@@ -406,6 +412,7 @@ export function importApi(): Plugin {
 
   const responsePayload = () => ({
     ...state,
+    progress: state.status === "running" ? importProgress.current : null,
     hasViewerAssets: Boolean(viewerManifest()),
     viewerManifest: viewerManifest(),
   });
@@ -512,6 +519,7 @@ export function importApi(): Plugin {
       .filter(Boolean);
   };
   const modalityResponsePayload = () => ({
+    progress: modalityStatus === "uploading" ? modalityProgress.current : null,
     status: modalityStatus,
     message: modalityMessage,
     modalities: modalityRecords(),
@@ -552,6 +560,7 @@ export function importApi(): Plugin {
       : null;
     return {
       ...registrationState,
+      progress: registrationState.status === "running" ? registrationProgress.current : null,
       ...(completedAssets && registrationState.status !== "running"
         ? {
             status: "completed" as const,
@@ -567,11 +576,11 @@ export function importApi(): Plugin {
     };
   };
   const pushLog = (chunk: Buffer) => {
-    const lines = chunk.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = chunk.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("[PROGRESS]"));
     state = { ...state, logTail: [...state.logTail, ...lines].slice(-8) };
   };
   const pushRegistrationLog = (chunk: Buffer) => {
-    const lines = chunk.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = chunk.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("[PROGRESS]"));
     registrationState = {
       ...registrationState,
       logTail: [...registrationState.logTail, ...lines].slice(-12),
@@ -587,6 +596,8 @@ export function importApi(): Plugin {
     const nativeManifest = nativeOutput ? resolve(nativeOutput, "manifest.json") : null;
     return {
       ...connectivityState,
+      progress: connectivityState.status === "running" ? connectivityProgress.current : null,
+      nativeProgress: nativeConnectivityState.status === "running" ? nativeProgress.current : null,
       hasViewerAssets: Boolean(manifestPath && existsSync(manifestPath)),
       viewerManifest: manifestPath && existsSync(manifestPath)
         ? JSON.parse(readFileSync(manifestPath, "utf8"))
@@ -603,7 +614,7 @@ export function importApi(): Plugin {
     };
   };
   const pushConnectivityLog = (chunk: Buffer) => {
-    const lines = chunk.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = chunk.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("[PROGRESS]"));
     const phase = [...lines].reverse().find((line) => /^\[(INFO|OK|CACHE)\]/.test(line));
     if (phase && connectivityState.status === "running") connectivityWatchdog?.progress();
     connectivityState = {
@@ -641,6 +652,8 @@ export function importApi(): Plugin {
       windowsHide: true,
     });
     process.stdout.on("data", pushLog);
+    importProgress.reset();
+    process.stdout.on("data", (chunk: Buffer) => importProgress.push(chunk));
     process.stderr.on("data", pushLog);
     process.on("error", (error) => {
       state = { ...state, status: "failed", finishedAt: new Date().toISOString(), message: error.message };
@@ -744,6 +757,7 @@ export function importApi(): Plugin {
           const input = resolve(directory, fileName.toLowerCase().endsWith(".gz") ? "input.nii.gz" : "input.nii");
           modalityStatus = "uploading";
           modalityMessage = "Import et recalage de la nouvelle session";
+          modalityProgress.reset();
           const destination = createWriteStream(input, { flags: "wx" });
           let failed = false;
           const failUpload = () => {
@@ -774,6 +788,7 @@ export function importApi(): Plugin {
             let diagnostics = "";
             const log = (chunk: Buffer) => { diagnostics = (diagnostics + chunk.toString("utf8")).slice(-8000); };
             modalityProcess.stdout.on("data", log);
+            modalityProcess.stdout.on("data", (chunk: Buffer) => modalityProgress.push(chunk));
             modalityProcess.stderr.on("data", log);
             modalityProcess.once("error", (error) => { diagnostics = error.message; });
             modalityProcess.once("close", (code) => {
@@ -850,6 +865,7 @@ export function importApi(): Plugin {
           mkdirSync(output, { recursive: true });
           modalityStatus = "uploading";
           modalityMessage = "Import et validation de la modalité";
+          modalityProgress.reset();
           const destination = createWriteStream(input, { flags: "wx" });
           request.pipe(destination);
           destination.on("finish", () => {
@@ -873,6 +889,7 @@ export function importApi(): Plugin {
             );
             let diagnostics = "";
             modalityProcess.stdout.on("data", (chunk: Buffer) => { diagnostics += chunk.toString("utf8"); });
+            modalityProcess.stdout.on("data", (chunk: Buffer) => modalityProgress.push(chunk));
             modalityProcess.stderr.on("data", (chunk: Buffer) => { diagnostics += chunk.toString("utf8"); });
             modalityProcess.on("error", (error) => {
               modalityStatus = "failed";
@@ -1451,6 +1468,10 @@ export function importApi(): Plugin {
             },
           );
           connectivityProcess.stdout.on("data", pushConnectivityLog);
+          connectivityProgress.reset();
+          connectivityProcess.stdout.on("data", (chunk: Buffer) => {
+            if (connectivityProgress.push(chunk)) connectivityWatchdog?.progress();
+          });
           connectivityProcess.stderr.on("data", pushConnectivityLog);
           const activeProcess = connectivityProcess;
           connectivityWatchdog = createProgressWatchdog({
@@ -1542,10 +1563,12 @@ export function importApi(): Plugin {
             windowsHide: true,
           });
           const pushNativeLog = (chunk: Buffer) => {
-            const lines = chunk.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+            const lines = chunk.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("[PROGRESS]"));
             nativeConnectivityState.logTail = [...nativeConnectivityState.logTail, ...lines].slice(-10);
           };
           nativeConnectivityProcess.stdout.on("data", pushNativeLog);
+          nativeProgress.reset();
+          nativeConnectivityProcess.stdout.on("data", (chunk: Buffer) => nativeProgress.push(chunk));
           nativeConnectivityProcess.stderr.on("data", pushNativeLog);
           nativeConnectivityProcess.on("error", (error) => {
             nativeConnectivityState = { status: "failed", message: error.message, logTail: nativeConnectivityState.logTail };
@@ -1636,6 +1659,8 @@ export function importApi(): Plugin {
             },
           );
           registrationProcess.stdout.on("data", pushRegistrationLog);
+          registrationProgress.reset();
+          registrationProcess.stdout.on("data", (chunk: Buffer) => registrationProgress.push(chunk));
           registrationProcess.stderr.on("data", pushRegistrationLog);
           registrationProcess.on("error", (error) => {
             rmSync(interruptionMarker, { force: true });

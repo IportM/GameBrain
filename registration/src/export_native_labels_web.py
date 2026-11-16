@@ -1,6 +1,7 @@
 import argparse
 import json
 from pathlib import Path
+from task_progress import report_progress
 
 import nibabel as nib
 import numpy as np
@@ -138,10 +139,14 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     np.save(output / "detailed-labels.npy", volume, allow_pickle=False)
     encoded_volume = encode_labels(volume, labels, values)
+    report_progress("Préparation du modèle 3D")
     exported_regions = export_region_meshes(encoded_volume, spacing, output)
     counts: dict[str, int] = {}
     present_regions: set[int] = set()
     detailed_present_regions: set[int] = set()
+    total = sum(volume.shape[int(p["axis"])] for p in PLANES.values())
+    completed = 0
+    report_progress("Préparation des annotations", 0, total)
 
     for plane, definition in PLANES.items():
         count = int(volume.shape[int(definition["axis"])])
@@ -189,7 +194,11 @@ def main() -> None:
                 lossless=True,
                 method=4,
             )
+            completed += 1
+            if completed % 5 == 0 or completed == total:
+                report_progress("Préparation des annotations", completed, total)
 
+    report_progress("Finalisation")
     available_regions = {
         int(path_id)
         for region_id in detailed_present_regions

@@ -1,5 +1,11 @@
 import { connectivityAlphaTable, type ConnectivityPixels } from "./connectivitySliceCache";
 
+export function drawSliceOutline(canvas: HTMLCanvasElement, image: ConnectivityPixels) {
+  canvas.width = image.width;
+  canvas.height = image.height;
+  canvas.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height), 0, 0);
+}
+
 export function drawConnectivityOverlay(canvas: HTMLCanvasElement, sources: readonly ConnectivityPixels[], opacity: number, threshold: number, scratch: HTMLCanvasElement) {
   const context = canvas.getContext("2d");
   if (!context) return;

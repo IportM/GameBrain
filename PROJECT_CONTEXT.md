@@ -882,11 +882,27 @@ When a native import is active, the top bar exposes `Supprimer l'image`. This de
 
 ## Important Caveats
 
+### Lightweight region highlight optimization (2026-11-16)
+
+Mesh initialization now preserves existing vertex normals instead of recalculating them on each mount; missing normals are still computed once on the shared GLTF geometry. A bounded set of 128 ready URL strings (not geometry copies) tracks actually loaded detailed meshes. Native slice/tree hover uses an 80 ms cold intent delay instead of 140 ms and no deliberate delay for already-loaded revisions; click remains immediate. There is no bulk mesh prefetch or new background generation. First-time native mesh generation/loading can still take time. Tests cover bounded bookkeeping, revision isolation, preserving normals and computing missing normals only once. Manual validation: hover the same region twice in Allen/native, click to lock and clear it, compare rapid tree traversal and verify lighting is unchanged. Keep local, no push.
+
+### Readable cut face with volumetric connectivity (2026-11-16)
+
+The MIP projection/injection volumes use depthTest=false and were painting through the newly depth-tested section. The renderer now allocates stencil; only visible, non-discarded anatomical cut-face pixels mark reference 1. Volumetric connectivity and the injection-marker fallback test NotEqual against that mask without modifying it, only in clip mode. This preserves the slice's own 2D connectivity/annotation composition while keeping MIP visible around the cut and from the retained side; outside clip mode the stencil test is disabled. Normal frame clearing resets the mask. A full page reload is required for an existing canvas to gain its stencil buffer. Unit checks pass and a cached sagittal scene was visually checked without new processing. Keep this fix local; no push requested.
+
+### One-sided, depth-tested 3D cut face (2026-11-16)
+
+The textured section no longer uses DoubleSide or the selected-region overlay pass (which clears depth). It stays on scene layer 0 with depth testing/writes, and chooses FrontSide/BackSide to face the removed half, accounting for the mirrored Y anatomy group and the different native sagittal convention. Existing selected-region overlay behavior is unchanged. Geometry tests cover all Allen orientations/resolutions/directions plus native sagittal orientation; a cached local scene visibly hid the section from the retained side and showed it from the open side. Test orbiting and switching retained sides in Allen/native modes. Keep changes local per latest user instruction.
+
+### Detailed annotations on the 3D cut face (2026-11-16)
+
+The clip-face shader now composites the exact detailed region-outline URL used by the right-hand slice, above connectivity. This applies to Allen and registered native images and follows orientation/index/resolution and the Regions visibility switch. Outline colors/alpha are preserved (not thresholded with connectivity), and unloaded/missing outlines never replace a different slice's data. Existing 3D surface picking still uses the major groups; this change concerns contours on the cut image, not hundreds of extra meshes. User returned to local testing and revoked automatic pushes; keep this change local.
+
 ### Connectivity on the 3D cut face (2026-11-16)
 
 Clip mode's anatomical slice mesh now composites the same projection/injection overlays as the right-hand slice. App derives URLs once for both views (Allen and native), retaining active experiment, resolution/index mapping and revision. A shared canvas compositor supplies exactly the same opacity/threshold and projection-before-injection draw order to 2D and the GPU slice texture. Async loads use the existing bounded decoded-image cache, cancel obsolete requests and dispose replaced GPU textures; missing overlays do not crash/hide anatomy. Base slice alpha still clips signal to its anatomical shape. The full 3D connectivity volume/clipping behavior is unchanged. Small compositor/cache tests and TypeScript verification pass; a local cached experience was visually checked in coronal/sagittal clip views without downloading or recalculating data. Manual Mac test: show an experience, enable Brain cut, move slices/change orientation, adjust opacity/threshold, and toggle projection/injection/whole map in Allen and native modes. Push each completed correction today as requested.
 
-- For 2026-11-16, the user explicitly requests committing and pushing each completed correction to main so they can test on their separate Mac. Report the commit and any required restart/setup steps. Do not include local data or .agents files.
+- Latest user instruction (2026-11-16): they resumed testing on the shared machine. Stop automatic commits/pushes; keep subsequent changes local until they explicitly request publication. This supersedes the earlier same-day auto-push instruction for Mac testing.
 
 ### Connectivity preparation timeout (2026-11-16)
 
@@ -929,6 +945,10 @@ Implemented an optional native-image "Check registration" mode. It cross-fades t
 ### Modality session guard (2026-11-13)
 
 Modality import now asks Same session / Different session / Not sure inside the existing dialog. Same-session import requires explicit confirmation that the volume is already anatomically aligned with the reference RARE, including permission to adapt the grid if needed. The server rejects uploads without this declaration before writing a file. The declaration is a user assertion, not automated anatomical validation: identical shape/affine cannot establish anatomical alignment. Confirmation resets on file/reference changes and successful import. Different/uncertain sessions are blocked with an explanation: register the second session's RARE to the reference, then transform its modalities. This multi-session workflow is not implemented yet; do not redirect users to replace the reference image. Previously imported modalities remain unchanged and are not retroactively validated.
+
+### Measured task progress (2026-11-16)
+
+Long-operation dialogs share a spinning activity icon and a non-blinking progress bar. File uploads use XMLHttpRequest byte events; Python jobs publish flushed [PROGRESS] JSON records, decoded per process (including split UTF-8/lines) and exposed through existing status polling. Connectivity downloads aggregate the three files only once all sizes are known. Slice preparation counts completed slices across all orientations for native imports, modalities, Allen annotations and connectivity (Allen/native). Percentages refer to the named current stage, not an estimated overall duration. Extraction, ANTs registration, transformations and final model generation remain indeterminate with the spinner when no reliable total exists. Connectivity progress also refreshes its inactivity watchdog. No real-data job was run for this change; manually check imports, a new experiment download and registration stages. Changes remain local; no push requested.
 
 ### Additional RARE sessions (2026-11-13)
 

@@ -1,4 +1,4 @@
-import { Matrix4, Quaternion, Vector3 } from "three";
+import { BackSide, FrontSide, Matrix4, Quaternion, Vector3 } from "three";
 
 import {
   ATLAS_SIZE_MM,
@@ -14,6 +14,13 @@ export type SlicePlaneTransform = {
   quaternion: Quaternion;
   size: [number, number];
 };
+
+export function sliceSectionSide(quaternion: Quaternion, clippingNormal: Vector3) {
+  const frontNormal = new Vector3(0, 0, 1).applyQuaternion(quaternion);
+  // The anatomy group mirrors Y; the cut face points away from the retained half.
+  frontNormal.y *= -1;
+  return frontNormal.dot(clippingNormal) > 0 ? BackSide : FrontSide;
+}
 
 export function slicePlaneTransform(
   plane: SlicePlane,

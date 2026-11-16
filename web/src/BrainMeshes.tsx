@@ -17,6 +17,7 @@ import {
   type DetailedAnnotationStructure,
 } from "./detailedAnnotations";
 import { subjectAllenDetailedRegionUrl, subjectAllenRegionUrl } from "./viewerUrls";
+import { markRegionMeshReady, prepareRegionGeometry } from "./regionMeshPerformance";
 
 const RESTING_REGION_COLOR = "#858c88";
 const DIMMED_BRAIN_OPACITY = 0.07;
@@ -53,7 +54,7 @@ export function AtlasRegion({
     scene.traverse((object: Object3D) => {
       if (object instanceof Mesh) {
         object.userData.regionId = region.id;
-        object.geometry.computeVertexNormals();
+        prepareRegionGeometry(object.geometry);
         object.material = new MeshStandardMaterial({
           color: RESTING_REGION_COLOR,
           roughness: 0.66,
@@ -149,7 +150,7 @@ export function DetailedAtlasRegion({
   useLayoutEffect(() => {
     scene.traverse((object: Object3D) => {
       if (!(object instanceof Mesh)) return;
-      object.geometry.computeVertexNormals();
+      prepareRegionGeometry(object.geometry);
       object.material = new MeshStandardMaterial({
         color: highlighted ? structure.color : RESTING_REGION_COLOR,
         emissive: highlighted ? structure.color : "#000000",
@@ -173,6 +174,9 @@ export function DetailedAtlasRegion({
       });
     };
   }, [highlighted, scene, structure]);
+  useLayoutEffect(() => {
+    markRegionMeshReady(detailedAnnotationMeshUrl(structure.id));
+  }, [structure.id, sourceScene]);
 
   return <primitive object={scene} />;
 }
@@ -191,7 +195,7 @@ export function WholeBrain({
   useLayoutEffect(() => {
     scene.traverse((object: Object3D) => {
       if (!(object instanceof Mesh)) return;
-      object.geometry.computeVertexNormals();
+      prepareRegionGeometry(object.geometry);
       object.material = new MeshStandardMaterial({
         color: "#a2aaa5",
         roughness: 0.72,
@@ -278,7 +282,7 @@ export function SubjectBrain({
   useLayoutEffect(() => {
     scene.traverse((object: Object3D) => {
       if (!(object instanceof Mesh)) return;
-      object.geometry.computeVertexNormals();
+      prepareRegionGeometry(object.geometry);
       object.material = new MeshStandardMaterial({
         color: "#cbd8d2",
         roughness: 0.7,
@@ -326,7 +330,7 @@ export function SubjectRegion({
     scene.traverse((object: Object3D) => {
       if (!(object instanceof Mesh)) return;
       object.userData.regionId = region.id;
-      object.geometry.computeVertexNormals();
+      prepareRegionGeometry(object.geometry);
       object.material = new MeshStandardMaterial({
         color: region.color,
         emissive: region.color,
@@ -369,7 +373,7 @@ export function SubjectDetailedRegion({
   useLayoutEffect(() => {
     scene.traverse((object: Object3D) => {
       if (!(object instanceof Mesh)) return;
-      object.geometry.computeVertexNormals();
+      prepareRegionGeometry(object.geometry);
       object.material = new MeshStandardMaterial({
         color: highlighted ? structure.color : RESTING_REGION_COLOR,
         emissive: highlighted ? structure.color : "#000000",
@@ -393,6 +397,10 @@ export function SubjectDetailedRegion({
       });
     };
   }, [highlighted, scene, structure]);
+
+  useLayoutEffect(() => {
+    markRegionMeshReady(subjectAllenDetailedRegionUrl(structure.id, revision));
+  }, [structure.id, revision, sourceScene]);
 
   return <primitive object={scene} />;
 }

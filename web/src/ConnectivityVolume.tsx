@@ -11,6 +11,7 @@ import {
   Vector4,
 } from "three";
 import { retainConnectivityTexture } from "./connectivityVolumeCache";
+import { connectivityCutMask } from "./cutSurfaceMask";
 
 type ConnectivityVolumeProps = {
   center?: [number, number, number];
@@ -150,6 +151,7 @@ export default function ConnectivityVolume({
   }), [uniforms]);
 
   useEffect(() => {
+    Object.assign(material, connectivityCutMask(clipEnabled));
     uniforms.boxSize.value.copy(size);
     uniforms.clipEnabled.value = clipEnabled;
     uniforms.clipPlane.value.set(
@@ -164,7 +166,7 @@ export default function ConnectivityVolume({
     uniforms.threshold.value = threshold;
     uniforms.volume.value = texture;
     invalidate();
-  }, [clipEnabled, clippingPlane, highColor, invalidate, lowColor, opacity, size, texture, threshold, uniforms]);
+  }, [clipEnabled, clippingPlane, highColor, invalidate, lowColor, material, opacity, size, texture, threshold, uniforms]);
 
   useEffect(() => () => material.dispose(), [material]);
 
