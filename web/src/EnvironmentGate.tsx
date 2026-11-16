@@ -23,7 +23,7 @@ export function EnvironmentStatus({ report, error, onRetry }: {
           : <p role="alert"><CircleAlert size={18} aria-hidden="true" /> {t(error ?? "Les calculs nécessitent un Python compatible avec toutes les bibliothèques requises.")}</p>}
         {selected ? <dl className="environment-python">
           <div><dt>Python</dt><dd>{selected.python}</dd></div>
-          <div><dt>{t("Version")}</dt><dd>{selected.version}{!selected.compatible && ` · ${t("Python 3.12 en 64 bits requis")}`}</dd></div>
+          <div><dt>{t("Version")}</dt><dd>{selected.version}{!selected.compatible && ` · ${t(selected.compatibilityError ?? "Python 3.12 en 64 bits requis")}`}</dd></div>
         </dl> : !busy && !error && <p>{t("Aucun Python utilisable détecté.")}</p>}
         {!busy && selected && <table className="environment-checks">
           <thead><tr><th>{t("Bibliothèque")}</th><th>{t("État")}</th></tr></thead>

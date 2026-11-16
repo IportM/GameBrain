@@ -4,8 +4,8 @@
 
 INSTALLATION DU SITE (Windows / Linux) :
 ---------------------------------------
-Suivre le README à la racine du dépôt : depuis `web`, lancer `pnpm install`,
-`pnpm run setup`, puis `pnpm run dev --host 127.0.0.1 --port 5173`.
+Suivre le README à la racine du dépôt : depuis `web`, installer les dépendances
+du site puis le lancer. `setup` est optionnel si un Python compatible est déjà complet.
 Python 3.12 en 64 bits est requis. `pnpm run doctor` vérifie l'installation.
 Le site vérifie aussi les dépendances au démarrage et peut réutiliser un Python
 compatible déjà présent : environnement actif, Conda actif ou `PATH`.
@@ -15,10 +15,10 @@ Les commandes historiques ci-dessous sont destinées aux scripts en ligne de com
 pas nécessaires pour utiliser le site.
 
 Pour utiliser un Python 3.12 existant au lieu de créer `.venv-registration`,
-définir `GAMEBRAIN_PYTHON` avant l'installation et le démarrage :
+définir `GAMEBRAIN_PYTHON` avant le démarrage :
 
 ```bash
-# Linux
+# Mac / Linux
 export GAMEBRAIN_PYTHON=/chemin/vers/python
 ```
 
@@ -27,8 +27,9 @@ export GAMEBRAIN_PYTHON=/chemin/vers/python
 $env:GAMEBRAIN_PYTHON = "C:\chemin\vers\python.exe"
 ```
 
-Puis lancer `pnpm run setup` depuis `web`. Les bibliothèques seront installées
-dans cet environnement. Ne pas copier un environnement virtuel entre machines.
+Si les bibliothèques sont déjà présentes, lancer directement le site sans `setup`.
+Sinon, `setup` peut les installer dans ce Python, mais modifie alors l'environnement choisi.
+Ne pas copier un environnement virtuel entre machines.
 
 PRÉREQUIS :
 ------------

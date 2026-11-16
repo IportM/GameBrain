@@ -40,13 +40,18 @@ try {
       run(executable, [...args, "-c", versionCheck], { stdio: "ignore" }).status === 0,
     );
     if (!candidate) {
-      throw new Error("Install Python 3.12 (64-bit). On Linux, also install its venv support and libgomp1, then rerun setup.");
+      throw new Error("Install Python 3.12 (64-bit), then rerun setup. On macOS, see the Python installation steps in README.md. On Linux, also install its venv support and libgomp1.");
     }
     console.log("Creating the local Python environment...");
     requireSuccess(run(candidate[0], [...candidate[1], "-m", "venv", venv]),
       "Could not create the environment. On Linux, install python3.12-venv.");
   }
   requireSuccess(run(python, ["-c", versionCheck]), "Python 3.12 (64-bit) is required. Use a compatible interpreter; do not copy a venv from another computer.");
+  const runtimeCheck = run(python, [resolve(root, "registration/src/runtime_support.py")], { stdio: "pipe", encoding: "utf8" });
+  requireSuccess(runtimeCheck, "Could not identify Python platform.");
+  const runtime = JSON.parse(runtimeCheck.stdout);
+  if (!runtime.compatible) throw new Error(runtime.compatibilityError);
+  if (runtime.profile === "mac-intel") console.log("Mac Intel profile: TensorFlow 2.16.2 and NumPy 1.26.4 (CPU).");
   requireSuccess(run(python, [resolve(root, "registration/src/check_environment.py"), "--resources-only"]),
     "Bundled resources are missing or corrupted. Update the repository before installing libraries.");
   if (!checkOnly) {

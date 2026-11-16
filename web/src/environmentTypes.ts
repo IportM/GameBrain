@@ -3,6 +3,8 @@ export type PythonProbe = {
   python: string;
   version: string;
   compatible: boolean;
+  compatibilityError?: string | null;
+  profile?: "mac-intel" | "default";
   verified: boolean;
   checks: EnvironmentCheck[];
   resourcesMissing: string[];

@@ -1,6 +1,7 @@
 export type Language = "fr" | "en";
 
 export const english: Record<string, string> = {
+  "Mac Intel : macOS 15 ou plus récent requis pour ANTsPy 0.6.3": "Intel Mac: macOS 15 or newer required for ANTsPy 0.6.3",
   "Vérification de l'installation": "Checking installation", "Installation à compléter": "Installation incomplete",
   "Recherche des Python disponibles et vérification des bibliothèques…": "Finding available Python environments and checking libraries…",
   "Les calculs nécessitent un Python compatible avec toutes les bibliothèques requises.": "Processing requires a compatible Python environment with all required libraries.",

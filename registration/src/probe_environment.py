@@ -3,8 +3,8 @@ import importlib
 import importlib.util
 import json
 from pathlib import Path
-import struct
 import sys
+from runtime_support import runtime_support
 
 PACKAGES = (
     ("numpy", "numpy"), ("scipy.ndimage", "scipy"), ("nibabel", "nibabel"),
@@ -35,7 +35,7 @@ def probe(verify=False):
     ]
     return {
         "python": sys.executable, "version": sys.version.split()[0],
-        "compatible": sys.version_info[:2] == (3, 12) and struct.calcsize("P") == 8,
+        **runtime_support(),
         "checks": checks, "verified": verify,
         "resourcesMissing": [name for name in required if not (resources / name).is_file() or (resources / name).stat().st_size == 0],
     }
