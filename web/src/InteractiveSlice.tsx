@@ -12,7 +12,8 @@ import {
   type SliceResolution,
 } from "./atlas";
 import type { ModalityPalette, ModalitySlice } from "./modalityVolume";
-import { connectivityAlphaTable, loadConnectivityPixels, type ConnectivityPixels } from "./connectivitySliceCache";
+import { loadConnectivityPixels, type ConnectivityPixels } from "./connectivitySliceCache";
+import { drawConnectivityOverlay } from "./drawConnectivityOverlay";
 
 const PALETTES: Record<Exclude<ModalityPalette, "gray">, Array<[number, number, number]>> = {
   viridis: [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]],
@@ -134,31 +135,9 @@ function ConnectivityOverlay({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    if (layers.length === 0) return;
-
-    const [first] = layers;
-    canvas.width = first.width;
-    canvas.height = first.height;
-    context.clearRect(0, 0, canvas.width, canvas.height);
-
-    const alphaTable = connectivityAlphaTable(opacity, threshold);
     const layer = scratchRef.current ?? document.createElement("canvas");
     scratchRef.current = layer;
-    for (const source of layers) {
-      layer.width = source.width;
-      layer.height = source.height;
-      const layerContext = layer.getContext("2d");
-      if (!layerContext) continue;
-      const pixels = new ImageData(new Uint8ClampedArray(source.pixels), source.width, source.height);
-      for (let offset = 3; offset < pixels.data.length; offset += 4) {
-        pixels.data[offset] = alphaTable[pixels.data[offset]];
-      }
-      layerContext.putImageData(pixels, 0, 0);
-      context.drawImage(layer, 0, 0, canvas.width, canvas.height);
-    }
+    drawConnectivityOverlay(canvas, layers, opacity, threshold, layer);
   }, [layers, opacity, threshold]);
 
   useEffect(() => () => {

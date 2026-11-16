@@ -115,6 +115,8 @@ function AtlasScene({
   connectivityVolumeCenter,
   connectivityProjectionUrl,
   connectivityThreshold,
+  connectivitySliceProjectionSrc,
+  connectivitySliceInjectionSrc,
   connectivityVolumeSpacingMm,
   connectivityVolumeShape,
   detailedRegion,
@@ -156,6 +158,8 @@ function AtlasScene({
   connectivityVolumeCenter?: [number, number, number];
   connectivityProjectionUrl?: string;
   connectivityThreshold: number;
+  connectivitySliceProjectionSrc?: string;
+  connectivitySliceInjectionSrc?: string;
   connectivityVolumeSpacingMm: number | [number, number, number];
   connectivityVolumeShape?: [number, number, number];
   detailedRegion: DetailedAnnotationStructure | null;
@@ -471,6 +475,10 @@ function AtlasScene({
           <Suspense fallback={null}>
             {slice3DMode === "clip" && (
               <AtlasSliceSectionView
+                connectivityProjectionSrc={connectivitySliceProjectionSrc}
+                connectivityInjectionSrc={connectivitySliceInjectionSrc}
+                connectivityOpacity={connectivityOpacity}
+                connectivityThreshold={connectivityThreshold}
                 imageUrl={
                   source === "subject"
                     ? subjectSlice3DUrl(activePlane, sliceIndex, subjectRevision)

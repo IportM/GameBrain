@@ -1797,6 +1797,19 @@ export default function App() {
     }
   };
 
+  const connectivitySliceSource = (layer: "projection" | "injection") => {
+    if (!connectivityVisible || (layer === "projection" ? !projectionVisible : !injectionVisible)) return undefined;
+    if (viewerSource === "allen" && connectivityState.viewerManifest) {
+      return connectivityOverlayUrl(layer, activePlane, sliceIndex, sliceResolution, connectivityState.viewerManifest, connectivityState.finishedAt);
+    }
+    if (viewerSource === "subject" && connectivityState.hasNativeViewerAssets) {
+      return nativeConnectivityOverlayUrl(layer, activePlane, sliceIndex, connectivityState.finishedAt, connectivityState.experimentId, connectivityState.nativeFinishedAt);
+    }
+    return undefined;
+  };
+  const connectivitySliceProjectionSrc = connectivitySliceSource("projection");
+  const connectivitySliceInjectionSrc = connectivitySliceSource("injection");
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -2854,6 +2867,8 @@ export default function App() {
                     : undefined
                 }
                 connectivityOpacity={connectivityOpacity}
+                connectivitySliceProjectionSrc={connectivitySliceProjectionSrc}
+                connectivitySliceInjectionSrc={connectivitySliceInjectionSrc}
                 connectivityProjectionUrl={
                   connectivityVisible && projectionVisible
                     ? viewerSource === "allen" && connectivityState.hasViewerAssets
@@ -3083,38 +3098,8 @@ export default function App() {
                 ? showAllenRegionColors
                 : subjectAnnotationsAvailable && showImportedAnnotations}
               connectivityInspectionEnabled={viewerSource === "allen" && connectivityVisible}
-              connectivityProjectionSrc={
-                connectivityVisible && projectionVisible
-                  ? viewerSource === "allen" && connectivityState.viewerManifest
-                    ? connectivityOverlayUrl(
-                      "projection",
-                      activePlane,
-                      sliceIndex,
-                      sliceResolution,
-                      connectivityState.viewerManifest,
-                      connectivityState.finishedAt,
-                    )
-                    : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
-                      ? nativeConnectivityOverlayUrl("projection", activePlane, sliceIndex, connectivityState.finishedAt, connectivityState.experimentId, connectivityState.nativeFinishedAt)
-                      : undefined
-                  : undefined
-              }
-              connectivityInjectionSrc={
-                connectivityVisible && injectionVisible
-                  ? viewerSource === "allen" && connectivityState.viewerManifest
-                    ? connectivityOverlayUrl(
-                      "injection",
-                      activePlane,
-                      sliceIndex,
-                      sliceResolution,
-                      connectivityState.viewerManifest,
-                      connectivityState.finishedAt,
-                    )
-                    : viewerSource === "subject" && connectivityState.hasNativeViewerAssets
-                      ? nativeConnectivityOverlayUrl("injection", activePlane, sliceIndex, connectivityState.finishedAt, connectivityState.experimentId, connectivityState.nativeFinishedAt)
-                      : undefined
-                  : undefined
-              }
+              connectivityProjectionSrc={connectivitySliceProjectionSrc}
+              connectivityInjectionSrc={connectivitySliceInjectionSrc}
               connectivityOpacity={connectivityOpacity}
               connectivityThreshold={connectivityThreshold}
               detailedHighlight={activeDetailedRegion

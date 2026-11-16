@@ -15,6 +15,7 @@ import {
 import { sliceUrl, type SlicePlane, type SliceResolution } from "./atlas";
 import type { ImportedManifest } from "./data";
 import { slicePlaneTransform } from "./sceneGeometry";
+import { useConnectivitySliceTexture } from "./useConnectivitySliceTexture";
 
 const SELECTED_REGION_LAYER = 1;
 
@@ -119,22 +120,35 @@ export function AtlasSlicePlane({
 }
 
 export function AtlasSliceSection({
+  connectivityProjectionSrc,
+  connectivityInjectionSrc,
+  connectivityOpacity = 1,
+  connectivityThreshold = 0,
   imageUrl,
   importedManifest,
   index,
   overlayLayer = true,
   plane,
   resolution,
-}: SliceDisplayProps & { imageUrl?: string; overlayLayer?: boolean }) {
+}: SliceDisplayProps & {
+  imageUrl?: string; overlayLayer?: boolean;
+  connectivityProjectionSrc?: string; connectivityInjectionSrc?: string;
+  connectivityOpacity?: number; connectivityThreshold?: number;
+}) {
   const meshRef = useRef<Mesh>(null);
   const texture = useTexture(imageUrl ?? sliceUrl(plane, index, resolution));
+  const connectivityTexture = useConnectivitySliceTexture(connectivityProjectionSrc, connectivityInjectionSrc, connectivityOpacity, connectivityThreshold);
   const transform = useMemo(
     () => importedManifest
       ? importedSlicePlaneTransform(plane, index, importedManifest)
       : slicePlaneTransform(plane, index, resolution),
     [importedManifest, index, plane, resolution],
   );
-  const uniforms = useMemo(() => ({ sliceTexture: { value: texture } }), [texture]);
+  const uniforms = useMemo(() => ({
+    sliceTexture: { value: texture },
+    connectivityTexture: { value: connectivityTexture ?? texture },
+    hasConnectivity: { value: connectivityTexture !== null },
+  }), [texture, connectivityTexture]);
   useEffect(() => {
     texture.colorSpace = SRGBColorSpace;
     texture.anisotropy = 4;
@@ -150,7 +164,20 @@ export function AtlasSliceSection({
         uniforms={uniforms}
         side={DoubleSide}
         vertexShader={`varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`}
-        fragmentShader={`uniform sampler2D sliceTexture; varying vec2 vUv; void main() { vec4 sliceColor = texture2D(sliceTexture, vUv); if (sliceColor.a < 0.5) discard; gl_FragColor = vec4(sliceColor.rgb, 1.0); }`}
+        fragmentShader={`
+          uniform sampler2D sliceTexture;
+          uniform sampler2D connectivityTexture;
+          uniform bool hasConnectivity;
+          varying vec2 vUv;
+          void main() {
+            vec4 sliceColor = texture2D(sliceTexture, vUv);
+            if (sliceColor.a < 0.5) discard;
+            if (hasConnectivity) {
+              vec4 signal = texture2D(connectivityTexture, vUv);
+              sliceColor.rgb = mix(sliceColor.rgb, signal.rgb, signal.a);
+            }
+            gl_FragColor = vec4(sliceColor.rgb, 1.0);
+          }`}
       />
     </mesh>
   );

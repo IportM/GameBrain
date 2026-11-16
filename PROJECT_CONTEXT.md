@@ -882,6 +882,10 @@ When a native import is active, the top bar exposes `Supprimer l'image`. This de
 
 ## Important Caveats
 
+### Connectivity on the 3D cut face (2026-11-16)
+
+Clip mode's anatomical slice mesh now composites the same projection/injection overlays as the right-hand slice. App derives URLs once for both views (Allen and native), retaining active experiment, resolution/index mapping and revision. A shared canvas compositor supplies exactly the same opacity/threshold and projection-before-injection draw order to 2D and the GPU slice texture. Async loads use the existing bounded decoded-image cache, cancel obsolete requests and dispose replaced GPU textures; missing overlays do not crash/hide anatomy. Base slice alpha still clips signal to its anatomical shape. The full 3D connectivity volume/clipping behavior is unchanged. Small compositor/cache tests and TypeScript verification pass; a local cached experience was visually checked in coronal/sagittal clip views without downloading or recalculating data. Manual Mac test: show an experience, enable Brain cut, move slices/change orientation, adjust opacity/threshold, and toggle projection/injection/whole map in Allen and native modes. Push each completed correction today as requested.
+
 - For 2026-11-16, the user explicitly requests committing and pushing each completed correction to main so they can test on their separate Mac. Report the commit and any required restart/setup steps. Do not include local data or .agents files.
 
 ### Connectivity preparation timeout (2026-11-16)
