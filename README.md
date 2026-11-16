@@ -27,7 +27,7 @@ Exécuter chaque ligne séparément et attendre sa fin. Si le projet est déjà 
 se placer dans `GameBrain/web` et commencer à `npx`.
 
 ```bash
-git clone --depth 1 https://github.com/IportM/GameBrain.git
+git clone https://github.com/IportM/GameBrain.git
 cd GameBrain/web
 npx --yes pnpm@10 install
 npx --yes pnpm@10 run setup
