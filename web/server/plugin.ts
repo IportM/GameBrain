@@ -24,6 +24,7 @@ import {
 } from "./allenApi";
 import { isLocalApiRequest } from "./security";
 import { createPythonEnvironment } from "./pythonEnvironment";
+import { createProgressWatchdog } from "./progressWatchdog";
 import { downloadedExperiments, invalidateConnectivityLibrary, readyExperiment, readExperimentMetadata } from "./connectivityLibrary";
 type ImportStatus = "idle" | "uploading" | "running" | "completed" | "failed";
 type ImportState = {
@@ -93,7 +94,7 @@ export function importApi(): Plugin {
   let registrationProcess: ChildProcessWithoutNullStreams | null = null;
   let connectivityProcess: ChildProcessWithoutNullStreams | null = null;
   let connectivityStopReason: string | null = null;
-  let connectivityTimeout: ReturnType<typeof setTimeout> | null = null;
+  let connectivityWatchdog: ReturnType<typeof createProgressWatchdog> | null = null;
   let nativeConnectivityProcess: ChildProcessWithoutNullStreams | null = null;
   let modalityProcess: ChildProcessWithoutNullStreams | null = null;
   let qcProcess: ChildProcessWithoutNullStreams | null = null;
@@ -604,6 +605,7 @@ export function importApi(): Plugin {
   const pushConnectivityLog = (chunk: Buffer) => {
     const lines = chunk.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     const phase = [...lines].reverse().find((line) => /^\[(INFO|OK|CACHE)\]/.test(line));
+    if (phase && connectivityState.status === "running") connectivityWatchdog?.progress();
     connectivityState = {
       ...connectivityState,
       message: connectivityState.status === "running" && phase
@@ -1170,6 +1172,7 @@ export function importApi(): Plugin {
             return;
           }
           connectivityStopReason = "Chargement annulé par l'utilisateur";
+          connectivityWatchdog?.stop();
           connectivityState = {
             ...connectivityState,
             status: "failed",
@@ -1449,21 +1452,28 @@ export function importApi(): Plugin {
           );
           connectivityProcess.stdout.on("data", pushConnectivityLog);
           connectivityProcess.stderr.on("data", pushConnectivityLog);
-          connectivityTimeout = setTimeout(() => {
-            if (!connectivityProcess) return;
-            connectivityStopReason = "Le chargement a dépassé la limite de cinq minutes";
-            connectivityState = {
-              ...connectivityState,
-              status: "failed",
-              finishedAt: new Date().toISOString(),
-              message: connectivityStopReason,
-            };
-            connectivityProcess.kill();
-          }, 5 * 60 * 1000);
+          const activeProcess = connectivityProcess;
+          connectivityWatchdog = createProgressWatchdog({
+            idleMs: 5 * 60 * 1000,
+            maximumMs: 30 * 60 * 1000,
+            onTimeout: (reason) => {
+              if (connectivityProcess !== activeProcess || connectivityState.status !== "running") return;
+              connectivityStopReason = reason === "idle"
+                ? "Aucune progression du chargement depuis cinq minutes"
+                : "Le chargement a dépassé la limite totale de trente minutes";
+              connectivityState = {
+                ...connectivityState,
+                status: "failed",
+                finishedAt: new Date().toISOString(),
+                message: connectivityStopReason,
+              };
+              activeProcess.kill();
+            },
+          });
           connectivityProcess.on("error", (error) => {
             invalidateConnectivityLibrary(connectivityRoot, experimentId);
-            if (connectivityTimeout) clearTimeout(connectivityTimeout);
-            connectivityTimeout = null;
+            connectivityWatchdog?.stop();
+            connectivityWatchdog = null;
             connectivityState = {
               ...connectivityState,
               status: "failed",
@@ -1474,8 +1484,8 @@ export function importApi(): Plugin {
           });
           connectivityProcess.on("close", (code) => {
             invalidateConnectivityLibrary(connectivityRoot, experimentId);
-            if (connectivityTimeout) clearTimeout(connectivityTimeout);
-            connectivityTimeout = null;
+            connectivityWatchdog?.stop();
+            connectivityWatchdog = null;
             const webOutput = resolve(output, "web");
             const manifest = resolve(webOutput, "manifest.json");
             const stopReason = connectivityStopReason;

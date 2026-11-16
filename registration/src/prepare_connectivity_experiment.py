@@ -206,7 +206,7 @@ def export_overlays(
                 )
         with ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1)) as executor:
             for completed, _ in enumerate(executor.map(write_slice, range(count)), start=1):
-                if completed % 100 == 0 or completed == count:
+                if completed % 25 == 0 or completed == count:
                     print(f"[INFO] Coupes {name}: {completed}/{count}", flush=True)
     return counts
 

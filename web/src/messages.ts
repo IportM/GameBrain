@@ -1,6 +1,8 @@
 export type Language = "fr" | "en";
 
 export const english: Record<string, string> = {
+  "Aucune progression du chargement depuis cinq minutes": "No loading progress for five minutes",
+  "Le chargement a dépassé la limite totale de trente minutes": "Loading exceeded the thirty-minute total limit",
   "Mac Intel : macOS 15 ou plus récent requis pour ANTsPy 0.6.3": "Intel Mac: macOS 15 or newer required for ANTsPy 0.6.3",
   "Vérification de l'installation": "Checking installation", "Installation à compléter": "Installation incomplete",
   "Recherche des Python disponibles et vérification des bibliothèques…": "Finding available Python environments and checking libraries…",

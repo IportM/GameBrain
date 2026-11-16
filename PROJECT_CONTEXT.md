@@ -882,6 +882,12 @@ When a native import is active, the top bar exposes `Supprimer l'image`. This de
 
 ## Important Caveats
 
+- For 2026-11-16, the user explicitly requests committing and pushing each completed correction to main so they can test on their separate Mac. Report the commit and any required restart/setup steps. Do not include local data or .agents files.
+
+### Connectivity preparation timeout (2026-11-16)
+
+An external Mac test downloaded Allen volumes in 2.4 seconds but hit the fixed five-minute total deadline after exporting coronal and sagittal overlays. Replaced that wall-clock deadline with a five-minute no-progress watchdog refreshed by structured Python INFO/OK/CACHE messages, plus an absolute thirty-minute maximum. Cancellation/error/completion clear both timers. Overlay export now reports every 25 completed slices instead of 100, without changing image quality. This removes premature interruption of slow but progressing preparation; it is not a speed optimization. Timer simulation tests, connectivity tests, synthetic Python export tests and TypeScript checks pass. Real Mac retry remains to be performed after publishing the fix.
+
 ### Mac Intel dependency profile (2026-11-16)
 
 Intel macOS no longer has official TensorFlow 2.21 wheels. Requirements now select TensorFlow 2.16.2 plus NumPy 1.26.4 only for darwin/x86_64; all other platforms retain TensorFlow 2.21.0 and NumPy 2.3.5. ANTsPy 0.6.3 provides a CPython 3.12 macOS 15+ Intel wheel, so setup/startup share runtime_support.py to reject older Intel macOS explicitly. PyPI metadata for ANTsPy, ANTsXNet, TensorFlow, matplotlib and scikit-image was inspected; platform-marker unit tests pass. This is dependency-level compatibility, not a validated Mac extraction run. The user's target reports macOS 15.7.7 and x86_64. Python itself is absent there; README now describes installing Python 3.12 with uv without requiring Homebrew. No real Mac environment or scientific pipeline was executed by the agent.
